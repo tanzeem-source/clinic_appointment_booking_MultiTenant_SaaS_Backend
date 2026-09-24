@@ -32,3 +32,8 @@ export const VerifyOTPSchema = z.object({
 export const ResendOTPSchema = z.object({
   email: emailSchema
 });
+
+export const LoginSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1, 'Password is required')
+});

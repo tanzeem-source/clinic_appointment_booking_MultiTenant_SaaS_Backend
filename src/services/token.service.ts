@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import ms from 'ms';
 import { env } from '../config/env';
 
 export interface JwtPayload {
@@ -13,9 +14,6 @@ export const signToken = (payload: JwtPayload): string => {
   });
 };
 
-// jwt.verify only proves the token wasn't tampered with — it says nothing
-// about payload shape, so we check that explicitly rather than trusting
-// a bare `as` cast.
 export const verifyToken = (token: string): JwtPayload => {
   const decoded = jwt.verify(token, env.JWT_SECRET);
 
@@ -30,3 +28,16 @@ export const verifyToken = (token: string): JwtPayload => {
 
   return decoded as JwtPayload;
 };
+
+export const AUTH_COOKIE_NAME = 'auth_token';
+
+// Shared so login/verify-otp (set) and logout (clear) can't drift out of
+// sync on flags like `secure`/`sameSite` — a mismatch there is a common
+// source of "cookie won't clear" bugs.
+export const getAuthCookieOptions = () => ({
+  httpOnly: true,
+  secure: env.NODE_ENV === 'production', // requires HTTPS in prod; browsers silently drop `Secure` cookies over plain HTTP, so keep this false for local http:// dev
+  sameSite: 'lax' as const,
+  maxAge: ms(env.JWT_EXPIRES_IN as ms.StringValue),
+  path: '/',
+});

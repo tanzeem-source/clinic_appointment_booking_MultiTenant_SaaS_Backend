@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { registerPatient, registerClinic, verifyOTP, resendOtp } from '../controllers/auth.controller';
+import { registerPatient, registerClinic, verifyOTP, resendOtp, login, logout} from '../controllers/auth.controller';
 
 const router = Router();
 
@@ -23,5 +23,7 @@ router.post('/register-patient', authLimiter, registerPatient);
 router.post('/register-clinic', authLimiter, registerClinic);
 router.post('/verify-otp', otpLimiter, verifyOTP);
 router.post('/resend-otp', otpLimiter, resendOtp);
+router.post('/login', authLimiter, login);
+router.post('/logout', logout);
 
 export default router;
