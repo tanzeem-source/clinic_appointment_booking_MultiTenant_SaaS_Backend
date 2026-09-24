@@ -1,15 +1,13 @@
 import { Pool } from 'pg';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { env } from './env';
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString: env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // Neon requires SSL; revisit stricter cert validation before prod
 });
 
-pool.on('connect', () => {
-  console.log('🐘 Connected to Neon PostgreSQL Database');
+// Without this, an idle client erroring (e.g. Neon closing an idle
+// connection) throws an uncaught exception and crashes the process.
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle PG client:', err);
 });

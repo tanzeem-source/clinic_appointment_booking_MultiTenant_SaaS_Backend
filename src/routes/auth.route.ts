@@ -1,10 +1,27 @@
 import { Router } from 'express';
-import { registerPatient, registerClinic, verifyOTP } from 'controllers/auth.controller';
+import rateLimit from 'express-rate-limit';
+import { registerPatient, registerClinic, verifyOTP, resendOtp } from '../controllers/auth.controller';
 
 const router = Router();
 
-router.post('/register-patient', registerPatient);
-router.post('/register-clinic', registerClinic);
-router.post('/verify-otp', verifyOTP);
+const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+router.post('/register-patient', authLimiter, registerPatient);
+router.post('/register-clinic', authLimiter, registerClinic);
+router.post('/verify-otp', otpLimiter, verifyOTP);
+router.post('/resend-otp', otpLimiter, resendOtp);
 
 export default router;
