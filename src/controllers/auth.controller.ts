@@ -82,7 +82,6 @@ export const registerClinic = asyncHandler(
 
       const passwordHash = await bcrypt.hash(data.password, 10);
       const otp = generateOtp();
-      console.log('🔑 DEV OTP:', otp);
 
       await client.query(
         `INSERT INTO "User" (name, email, "passwordHash", role, "tenantId", "isVerified", "otpCode", "otpExpiresAt", "otpAttempts", "otpLastSentAt")

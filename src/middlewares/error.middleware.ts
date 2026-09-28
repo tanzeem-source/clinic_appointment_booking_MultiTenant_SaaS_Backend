@@ -31,11 +31,28 @@ export const errorHandler = (
   _next: NextFunction
 ) => {
   if (err instanceof ZodError) {
-    return res.status(422).json({ error: 'Validation failed', details: err.flatten().fieldErrors });
+    const { fieldErrors, formErrors } = err.flatten();
+    // Form-level errors (e.g. from .refine()) have no field to attach to,
+    // so surface the first one as the main message; otherwise the client
+    // sees "Validation failed" with nothing to act on.
+    return res.status(422).json({
+      error: formErrors[0] || 'Validation failed',
+      details: fieldErrors
+    });
   }
 
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({ error: err.message });
+  }
+
+  // Malformed JSON body (thrown by express.json() before any controller runs)
+  if ((err as any)?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Malformed JSON in request body.' });
+  }
+
+  // Request body larger than express.json()'s limit
+  if ((err as any)?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request body too large.' });
   }
 
   // Postgres unique-violation, in case one ever slips through uncaught
