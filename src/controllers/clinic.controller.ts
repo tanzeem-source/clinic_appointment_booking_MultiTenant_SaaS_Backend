@@ -57,25 +57,4 @@ export const updateMyClinic = asyncHandler(
   },
 );
 
-// Deliberately NOT behind the subscription gate: an unsubscribed clinic
-// must be able to see its status (and later, be sent to pay).
-export const getMySubscription = asyncHandler(
-  async (req: AuthenticatedRequest, res: Response) => {
-    const tenantId = req.user?.tenantId;
-    if (!tenantId)
-      throw new AppError("No clinic associated with this account.", 400);
 
-    const result = await pool.query(
-      'SELECT "subscriptionStatus" FROM "Tenant" WHERE id = $1',
-      [tenantId],
-    );
-    const tenant = result.rows[0];
-
-    if (!tenant) throw new AppError("Clinic not found.", 404);
-
-    return res.status(200).json({
-      subscriptionStatus: tenant.subscriptionStatus,
-      isActive: tenant.subscriptionStatus === "ACTIVE",
-    });
-  },
-);

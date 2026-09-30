@@ -5,11 +5,7 @@ import {
   AuthenticatedRequest,
 } from "../middlewares/auth.middleware";
 import { requireActiveSubscription } from "../middlewares/subscription.middleware";
-import {
-  getMyClinic,
-  updateMyClinic,
-  getMySubscription,
-} from "../controllers/clinic.controller";
+import { getMyClinic, updateMyClinic } from "../controllers/clinic.controller";
 
 const router = Router();
 
@@ -20,12 +16,6 @@ router.put(
   authenticateJWT,
   requireRole(["CLINIC_ADMIN"]),
   updateMyClinic,
-);
-router.get(
-  "/me/subscription",
-  authenticateJWT,
-  requireRole(["CLINIC_ADMIN"]),
-  getMySubscription,
 );
 
 // TEMP: throwaway route to prove the gate works before slots exist.

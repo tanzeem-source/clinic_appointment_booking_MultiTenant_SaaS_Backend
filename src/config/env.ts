@@ -1,30 +1,45 @@
-import dotenv from 'dotenv';
-import { z } from 'zod';
+import dotenv from "dotenv";
+import { z } from "zod";
 
 dotenv.config();
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(5000),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
+  NODE_ENV: z
+    .enum(["development", "production", "test"])
+    .default("development"),
+  CLIENT_ORIGIN: z.string().default("http://localhost:5173"),
 
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 
-  JWT_SECRET: z.string().min(10, 'JWT_SECRET must be set and at least 10 characters'),
-  JWT_EXPIRES_IN: z.string().default('7d'),
+  JWT_SECRET: z
+    .string()
+    .min(10, "JWT_SECRET must be set and at least 10 characters"),
+  JWT_EXPIRES_IN: z.string().default("7d"),
 
-  RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY is required'),
-  EMAIL_FROM: z.string().default('Auth <onboarding@resend.dev>'),
+  RESEND_API_KEY: z.string().min(1, "RESEND_API_KEY is required"),
+  EMAIL_FROM: z.string().default("Auth <onboarding@resend.dev>"),
 
   OTP_EXPIRY_MINUTES: z.coerce.number().default(10),
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().default(60),
+
+  RAZORPAY_KEY_ID: z.string().min(1, "RAZORPAY_KEY_ID is required"),
+  RAZORPAY_KEY_SECRET: z.string().min(1, "RAZORPAY_KEY_SECRET is required"),
+  RAZORPAY_WEBHOOK_SECRET: z
+    .string()
+    .min(1, "RAZORPAY_WEBHOOK_SECRET is required"),
+
+  // Amount in paise (1000 = INR 10.00). Set server-side only: the client
+  // never gets to decide what a subscription costs.
+  SUBSCRIPTION_AMOUNT_PAISE: z.coerce.number().int().positive().default(1000),
+  SUBSCRIPTION_PERIOD_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Invalid environment variables:');
+  console.error("❌ Invalid environment variables:");
   console.error(parsed.error.flatten().fieldErrors);
   process.exit(1);
 }

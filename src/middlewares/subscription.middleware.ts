@@ -17,7 +17,7 @@ export const requireActiveSubscription = asyncHandler(
     }
 
     const result = await pool.query(
-      'SELECT "subscriptionStatus" FROM "Tenant" WHERE id = $1',
+      'SELECT "subscriptionStatus", "subscriptionExpiresAt" FROM "Tenant" WHERE id = $1',
       [tenantId],
     );
     const tenant = result.rows[0];
@@ -30,6 +30,17 @@ export const requireActiveSubscription = asyncHandler(
       return res.status(402).json({
         error: "An active subscription is required to use this feature.",
         code: "SUBSCRIPTION_INACTIVE",
+        subscriptionStatus: tenant.subscriptionStatus,
+      });
+    }
+
+    if (
+      tenant.subscriptionExpiresAt &&
+      new Date(tenant.subscriptionExpiresAt).getTime() <= Date.now()
+    ) {
+      return res.status(402).json({
+        error: "Your subscription has expired. Please renew to continue.",
+        code: "SUBSCRIPTION_EXPIRED",
         subscriptionStatus: tenant.subscriptionStatus,
       });
     }
