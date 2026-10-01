@@ -6,6 +6,7 @@ import { env } from "./config/env";
 import authRoutes from "./routes/auth.route";
 import clinicRoutes from "./routes/clinic.route";
 import paymentRoutes from "./routes/payment.route";
+import doctorRoutes from "./routes/doctor.route";
 import devRoutes from "./dev/dev.route";
 import { handleWebhook } from "./controllers/payment.controller";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
@@ -40,6 +41,7 @@ app.get("/health", (req: Request, res: Response) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/clinics", clinicRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/doctors", doctorRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

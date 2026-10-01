@@ -12,6 +12,7 @@ import {
   searchClinics,
   getClinicById,
 } from "../controllers/clinic.controller";
+import { listClinicDoctors } from "../controllers/doctor.controller";
 
 const router = Router();
 
@@ -45,6 +46,7 @@ router.get(
 
 // Public routes — no auth.
 router.get("/search", searchLimiter, searchClinics);
+router.get("/:clinicId/doctors", searchLimiter, listClinicDoctors);
 router.get("/:id", searchLimiter, getClinicById);
 
 export default router;

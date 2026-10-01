@@ -27,3 +27,7 @@ export const SearchClinicsSchema = z.object({
 export const ClinicIdParamSchema = z.object({
   id: z.string().uuid("Invalid clinic id"),
 });
+
+export const ClinicIdRouteParamSchema = z.object({
+  clinicId: z.string().uuid('Invalid clinic id')
+});
