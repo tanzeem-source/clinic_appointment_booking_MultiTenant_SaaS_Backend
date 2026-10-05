@@ -17,6 +17,7 @@ const DOCTOR_FIELD_TO_COLUMN: Record<string, string> = {
   name: "name",
   specialization: "specialization",
   slotDurationMinutes: "slotDurationMinutes",
+  appointmentFeePaise: "appointmentFeePaise",
   isActive: "isActive",
 };
 
@@ -42,13 +43,14 @@ export const createDoctor = asyncHandler(
     const data = CreateDoctorSchema.parse(req.body);
 
     const result = await pool.query(
-      `INSERT INTO "Doctor" ("tenantId", name, specialization, "slotDurationMinutes")
-     VALUES ($1, $2, $3, $4) RETURNING *`,
+      `INSERT INTO "Doctor" ("tenantId", name, specialization, "slotDurationMinutes", "appointmentFeePaise")
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [
         tenantId,
         data.name,
         data.specialization ?? null,
         data.slotDurationMinutes,
+        data.appointmentFeePaise,
       ],
     );
 
@@ -231,13 +233,18 @@ export const getDoctorAvailability = asyncHandler(
         new Date(doctor.subscriptionExpiresAt) > new Date());
     if (!isClinicActive) throw new AppError("Doctor not found.", 404);
 
-    const [weeklyRes, overridesRes] = await Promise.all([
+    const [weeklyRes, overridesRes, takenRes] = await Promise.all([
       pool.query(
         'SELECT "dayOfWeek", "startTime", "endTime" FROM "DoctorWeeklyAvailability" WHERE "doctorId" = $1',
         [id],
       ),
       pool.query(
         'SELECT date, "isUnavailable" FROM "DoctorDateOverride" WHERE "doctorId" = $1',
+        [id],
+      ),
+      pool.query(
+        `SELECT date, "startTime" FROM "Booking"
+       WHERE "doctorId" = $1 AND (status = 'CONFIRMED' OR (status = 'PENDING_PAYMENT' AND "expiresAt" > NOW()))`,
         [id],
       ),
     ]);
@@ -258,14 +265,23 @@ export const getDoctorAvailability = asyncHandler(
       doctor.slotDurationMinutes,
     );
 
+    const takenSet = new Set(
+      takenRes.rows.map((r) => `${r.date}_${String(r.startTime).slice(0, 5)}`),
+    );
+    const availabilityWithoutTaken = availability.map((day) => ({
+      date: day.date,
+      slots: day.slots.filter((slot) => !takenSet.has(`${day.date}_${slot}`)),
+    }));
+
     return res.status(200).json({
       doctor: {
         id: doctor.id,
         name: doctor.name,
         specialization: doctor.specialization,
         slotDurationMinutes: doctor.slotDurationMinutes,
+        appointmentFeePaise: doctor.appointmentFeePaise,
       },
-      availability,
+      availability: availabilityWithoutTaken,
     });
   },
 );

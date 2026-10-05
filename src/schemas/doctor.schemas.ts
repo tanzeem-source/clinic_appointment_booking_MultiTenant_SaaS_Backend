@@ -6,6 +6,10 @@ export const CreateDoctorSchema = z.object({
   slotDurationMinutes: z.union([z.literal(15), z.literal(20), z.literal(30)], {
     error: "Slot duration must be 15, 20, or 30 minutes",
   }),
+  appointmentFeePaise: z.coerce
+    .number()
+    .int()
+    .positive("Appointment fee must be a positive amount in paise"),
 });
 
 export const UpdateDoctorSchema = z
@@ -17,6 +21,7 @@ export const UpdateDoctorSchema = z
         error: "Slot duration must be 15, 20, or 30 minutes",
       })
       .optional(),
+    appointmentFeePaise: z.coerce.number().int().positive().optional(),
     isActive: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {

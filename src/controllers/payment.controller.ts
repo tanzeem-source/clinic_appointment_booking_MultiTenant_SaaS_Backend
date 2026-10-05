@@ -11,6 +11,7 @@ import {
   verifyPaymentSignature,
   verifyWebhookSignature,
 } from "../services/payment.service";
+import { confirmBooking } from "../services/booking.service";
 
 export const getSubscription = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
@@ -102,6 +103,7 @@ export const verifySubscriptionPayment = asyncHandler(
 );
 
 // Server-to-server call from Razorpay. Needs the RAW body (see server.ts).
+
 export const handleWebhook = asyncHandler(
   async (req: Request, res: Response) => {
     const signature = req.header("x-razorpay-signature");
@@ -120,19 +122,39 @@ export const handleWebhook = asyncHandler(
     if (event.event === "payment.captured") {
       const payment = event.payload?.payment?.entity;
       if (payment?.order_id && payment?.id) {
-        const result = await activateSubscription(
+        // An order id belongs to exactly one of Payment (subscriptions) or
+        // Booking (appointments) — try subscriptions first, fall through.
+        const subResult = await activateSubscription(
           payment.order_id,
           payment.id,
           payment.amount,
         );
-        if (result === "AMOUNT_MISMATCH" || result === "UNKNOWN_ORDER") {
-          console.warn(`Webhook ${result} for order ${payment.order_id}`);
+        if (subResult === "UNKNOWN_ORDER") {
+          const bookingResult = await confirmBooking(
+            payment.order_id,
+            payment.id,
+            payment.amount,
+          );
+          if (bookingResult === "UNKNOWN_ORDER") {
+            console.warn(
+              `Webhook: order ${payment.order_id} not found in Payment or Booking tables`,
+            );
+          } else if (
+            bookingResult === "AMOUNT_MISMATCH" ||
+            bookingResult === "EXPIRED"
+          ) {
+            console.warn(
+              `Webhook booking ${bookingResult} for order ${payment.order_id}`,
+            );
+          }
+        } else if (subResult === "AMOUNT_MISMATCH") {
+          console.warn(
+            `Webhook subscription AMOUNT_MISMATCH for order ${payment.order_id}`,
+          );
         }
       }
     }
 
-    // Always 200 for a valid signature so Razorpay doesn't keep retrying
-    // events we deliberately ignore. Real failures throw above (-> 500 -> retry).
     return res.status(200).json({ received: true });
   },
 );

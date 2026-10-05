@@ -30,10 +30,10 @@ const envSchema = z.object({
     .string()
     .min(1, "RAZORPAY_WEBHOOK_SECRET is required"),
 
-  // Amount in paise (1000 = INR 10.00). Set server-side only: the client
-  // never gets to decide what a subscription costs.
-  SUBSCRIPTION_AMOUNT_PAISE: z.coerce.number().int().positive().default(1000),
+  SUBSCRIPTION_AMOUNT_PAISE: z.coerce.number().int().positive().default(99900),
   SUBSCRIPTION_PERIOD_DAYS: z.coerce.number().int().positive().default(30),
+
+  BOOKING_HOLD_MINUTES: z.coerce.number().int().positive().default(10),
 });
 
 const parsed = envSchema.safeParse(process.env);
