@@ -9,7 +9,12 @@ import {
   VerifyBookingSchema,
 } from "../schemas/booking.schemas";
 import { computeWeeklyAvailability } from "../services/availability.service";
-import { reserveBooking, confirmBooking } from "../services/booking.service";
+import {
+  reserveBooking,
+  attachOrderToBooking,
+  confirmBooking,
+  processRefund,
+} from "../services/booking.service";
 import { verifyPaymentSignature } from "../services/payment.service";
 
 export const createBookingReservation = asyncHandler(
@@ -34,13 +39,9 @@ export const createBookingReservation = asyncHandler(
         new Date(doctor.subscriptionExpiresAt) > new Date());
     if (!clinicActive) throw new AppError("Doctor not found.", 404);
 
-    // Re-derive this doctor's legitimate availability server-side — never
-    // trust a client-supplied date/time without checking it against the
-    // actual weekly template and overrides. Whether the slot is currently
-    // taken is checked atomically inside reserveBooking() below, not here —
-    // checking it twice risks this check seeing stale data and masking the
-    // more specific "it's your own pending hold" case that reserveBooking
-    // knows how to report correctly.
+    // Validate the slot against the doctor's real template and overrides.
+    // Whether it's currently taken is decided atomically inside
+    // reserveBooking(), not here.
     const [weeklyRes, overridesRes] = await Promise.all([
       pool.query(
         'SELECT "dayOfWeek", "startTime", "endTime" FROM "DoctorWeeklyAvailability" WHERE "doctorId" = $1',
@@ -68,9 +69,6 @@ export const createBookingReservation = asyncHandler(
       doctor.slotDurationMinutes,
     );
     const day = availability.find((d) => d.date === date);
-    // Note: this only validates the slot exists in the doctor's template —
-    // it does NOT check whether it's already taken. That's deliberately left
-    // to the atomic reserveBooking() call below.
     if (!day || !day.slots.includes(startTime)) {
       throw new AppError("This slot is not available.", 422);
     }
@@ -109,10 +107,9 @@ export const createBookingReservation = asyncHandler(
       notes: { bookingId: booking.id, doctorId, patientId },
     });
 
-    await pool.query(
-      'UPDATE "Booking" SET "razorpayOrderId" = $1 WHERE id = $2',
-      [order.id, booking.id],
-    );
+    // Sets the booking's current order AND writes the permanent payment
+    // record, so this order can always be traced even after a reclaim.
+    await attachOrderToBooking(booking, order.id);
 
     return res.status(201).json({
       bookingId: booking.id,
@@ -136,11 +133,14 @@ export const verifyBookingPayment = asyncHandler(
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
       VerifyBookingSchema.parse(req.body);
 
-    const bookingRes = await pool.query(
-      'SELECT id FROM "Booking" WHERE "razorpayOrderId" = $1 AND "patientId" = $2',
+    // Ownership is checked against the permanent payment record, not the
+    // booking row — the booking row may have been reclaimed by someone else
+    // since this order was created.
+    const ownedRes = await pool.query(
+      'SELECT id FROM "BookingPayment" WHERE "razorpayOrderId" = $1 AND "patientId" = $2',
       [razorpay_order_id, patientId],
     );
-    if (bookingRes.rows.length === 0)
+    if (ownedRes.rows.length === 0)
       throw new AppError("Booking not found.", 404);
 
     if (
@@ -153,20 +153,33 @@ export const verifyBookingPayment = asyncHandler(
       throw new AppError("Payment verification failed.", 400);
     }
 
-    const result = await confirmBooking(razorpay_order_id, razorpay_payment_id);
+    const outcome = await confirmBooking(
+      razorpay_order_id,
+      razorpay_payment_id,
+    );
 
-    if (result === "EXPIRED") {
+    if (outcome === "CONFIRMED" || outcome === "ALREADY_CONFIRMED") {
+      return res.status(200).json({ message: "Booking confirmed." });
+    }
+    if (outcome === "UNKNOWN_ORDER")
+      throw new AppError("Booking not found.", 404);
+
+    // REFUND_NEEDED or REFUNDED: the payment can't be honoured.
+    const refund =
+      outcome === "REFUNDED"
+        ? "REFUNDED"
+        : await processRefund(razorpay_order_id);
+
+    if (refund === "REFUNDED") {
       throw new AppError(
-        "Payment was received but the reservation window had already expired. This needs a manual refund — contact support.",
-        410,
+        "Your payment arrived after this slot was taken by another patient, so it has been refunded to your original payment method.",
+        409,
       );
     }
-    if (result === "UNKNOWN_ORDER")
-      throw new AppError("Booking not found.", 404);
-    if (result === "AMOUNT_MISMATCH")
-      throw new AppError("Payment amount mismatch.", 400);
-
-    return res.status(200).json({ message: "Booking confirmed." });
+    throw new AppError(
+      "Your payment arrived after this slot was taken by another patient. A full refund is being processed.",
+      409,
+    );
   },
 );
 

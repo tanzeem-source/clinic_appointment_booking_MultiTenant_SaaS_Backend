@@ -10,6 +10,7 @@ import {
   removeOverride,
   getDoctorAvailability,
 } from "../controllers/doctor.controller";
+import { listDoctorReviews } from '../controllers/review.controller';
 
 const router = Router();
 
@@ -61,5 +62,6 @@ router.delete(
 // Public — a GET on the same "/:id/availability" path as the admin PUT
 // above; Express distinguishes them by method, so this is safe.
 router.get("/:id/availability", getDoctorAvailability);
+router.get('/:id/reviews', listDoctorReviews);
 
 export default router;

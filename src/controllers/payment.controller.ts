@@ -11,7 +11,7 @@ import {
   verifyPaymentSignature,
   verifyWebhookSignature,
 } from "../services/payment.service";
-import { confirmBooking } from "../services/booking.service";
+import { confirmBooking, processRefund } from "../services/booking.service";
 
 export const getSubscription = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
@@ -103,7 +103,6 @@ export const verifySubscriptionPayment = asyncHandler(
 );
 
 // Server-to-server call from Razorpay. Needs the RAW body (see server.ts).
-
 export const handleWebhook = asyncHandler(
   async (req: Request, res: Response) => {
     const signature = req.header("x-razorpay-signature");
@@ -123,28 +122,33 @@ export const handleWebhook = asyncHandler(
       const payment = event.payload?.payment?.entity;
       if (payment?.order_id && payment?.id) {
         // An order id belongs to exactly one of Payment (subscriptions) or
-        // Booking (appointments) — try subscriptions first, fall through.
+        // BookingPayment (appointments) — try subscriptions first.
         const subResult = await activateSubscription(
           payment.order_id,
           payment.id,
           payment.amount,
         );
+
         if (subResult === "UNKNOWN_ORDER") {
-          const bookingResult = await confirmBooking(
+          const outcome = await confirmBooking(
             payment.order_id,
             payment.id,
             payment.amount,
           );
-          if (bookingResult === "UNKNOWN_ORDER") {
+
+          if (outcome === "REFUND_NEEDED") {
+            const refund = await processRefund(payment.order_id);
+            if (refund === "FAILED") {
+              // A non-2xx makes Razorpay re-send this event later, which
+              // retries the refund — that's the retry mechanism.
+              throw new AppError(
+                "Refund could not be completed yet; will retry.",
+                500,
+              );
+            }
+          } else if (outcome === "UNKNOWN_ORDER") {
             console.warn(
-              `Webhook: order ${payment.order_id} not found in Payment or Booking tables`,
-            );
-          } else if (
-            bookingResult === "AMOUNT_MISMATCH" ||
-            bookingResult === "EXPIRED"
-          ) {
-            console.warn(
-              `Webhook booking ${bookingResult} for order ${payment.order_id}`,
+              `Webhook: order ${payment.order_id} not found in Payment or BookingPayment`,
             );
           }
         } else if (subResult === "AMOUNT_MISMATCH") {
@@ -155,6 +159,8 @@ export const handleWebhook = asyncHandler(
       }
     }
 
+    // 200 for a valid signature so Razorpay doesn't retry events we
+    // deliberately ignore. Real failures throw above (-> 500 -> retry).
     return res.status(200).json({ received: true });
   },
 );

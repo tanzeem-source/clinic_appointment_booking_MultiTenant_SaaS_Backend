@@ -8,8 +8,6 @@ import {
   ClinicIdParamSchema,
 } from "../schemas/clinic.schemas";
 
-// Maps API field names to actual Tenant column names. Column names in the
-// SQL below come from this fixed list, never from request input.
 const FIELD_TO_COLUMN = {
   clinicName: "name",
   city: "city",
@@ -19,7 +17,7 @@ const FIELD_TO_COLUMN = {
 
 // Columns safe to expose publicly. "email" is the clinic ADMIN's login
 // email — never returned from a public endpoint.
-const PUBLIC_CLINIC_COLUMNS = `id, name, city, address, "contactInfo", photos, "averageRating", "createdAt"`;
+const PUBLIC_CLINIC_COLUMNS = `id, name, city, address, "contactInfo", photos, "averageRating", "reviewCount", "createdAt"`;
 
 export const getMyClinic = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
@@ -65,8 +63,6 @@ export const updateMyClinic = asyncHandler(
   },
 );
 
-// Public — no auth. Only clinics with an active, unexpired subscription are
-// findable, so an unpaid or lapsed clinic never appears to patients.
 export const searchClinics = asyncHandler(
   async (req: Request, res: Response) => {
     const { city, page, limit } = SearchClinicsSchema.parse(req.query);
@@ -98,18 +94,11 @@ export const searchClinics = asyncHandler(
 
     return res.status(200).json({
       clinics: rowsResult.rows,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   },
 );
 
-// Public — no auth. Same active/unexpired guard as search, so a direct link
-// to a lapsed clinic 404s instead of leaking its existence.
 export const getClinicById = asyncHandler(
   async (req: Request, res: Response) => {
     const { id } = ClinicIdParamSchema.parse(req.params);

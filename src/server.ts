@@ -11,6 +11,7 @@ import bookingRoutes from "./routes/booking.route";
 import devRoutes from "./dev/dev.route";
 import { handleWebhook } from "./controllers/payment.controller";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
+import reviewRoutes from './routes/review.route';
 
 const app = express();
 
@@ -39,7 +40,7 @@ app.use("/api/clinics", clinicRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/bookings", bookingRoutes);
-
+app.use("/api/reviews", reviewRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

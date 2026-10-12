@@ -13,6 +13,7 @@ import {
   getClinicById,
 } from "../controllers/clinic.controller";
 import { listClinicDoctors } from "../controllers/doctor.controller";
+import { listClinicReviews } from "../controllers/review.controller";
 
 const router = Router();
 
@@ -23,7 +24,6 @@ const searchLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Clinic-admin routes — specific paths, registered before the generic /:id below.
 router.get("/me", authenticateJWT, requireRole(["CLINIC_ADMIN"]), getMyClinic);
 router.put(
   "/me",
@@ -32,8 +32,6 @@ router.put(
   updateMyClinic,
 );
 
-// TEMP: throwaway route to prove the subscription gate works before slots exist.
-// Delete once the slots routes are behind requireActiveSubscription.
 router.get(
   "/me/gate-check",
   authenticateJWT,
@@ -44,9 +42,9 @@ router.get(
   },
 );
 
-// Public routes — no auth.
 router.get("/search", searchLimiter, searchClinics);
 router.get("/:clinicId/doctors", searchLimiter, listClinicDoctors);
+router.get("/:id/reviews", searchLimiter, listClinicReviews);
 router.get("/:id", searchLimiter, getClinicById);
 
 export default router;

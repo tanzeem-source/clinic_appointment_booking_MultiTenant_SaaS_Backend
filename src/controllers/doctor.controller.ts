@@ -198,14 +198,14 @@ export const listClinicDoctors = asyncHandler(
     // Only doctors at a clinic with an active, unexpired subscription are
     // visible — same rule as clinic search on Day 5.
     const result = await pool.query(
-      `SELECT d.id, d.name, d.specialization, d."slotDurationMinutes"
-     FROM "Doctor" d
-     JOIN "Tenant" t ON t.id = d."tenantId"
-     WHERE d."tenantId" = $1
-       AND d."isActive" = TRUE
-       AND t."subscriptionStatus" = 'ACTIVE'
-       AND (t."subscriptionExpiresAt" IS NULL OR t."subscriptionExpiresAt" > NOW())
-     ORDER BY d.name ASC`,
+      `SELECT d.id, d.name, d.specialization, d."slotDurationMinutes", d."appointmentFeePaise", d."averageRating", d."reviewCount"
+ FROM "Doctor" d
+ JOIN "Tenant" t ON t.id = d."tenantId"
+ WHERE d."tenantId" = $1
+   AND d."isActive" = TRUE
+   AND t."subscriptionStatus" = 'ACTIVE'
+   AND (t."subscriptionExpiresAt" IS NULL OR t."subscriptionExpiresAt" > NOW())
+ ORDER BY d.name ASC`,
       [clinicId],
     );
 
@@ -280,6 +280,8 @@ export const getDoctorAvailability = asyncHandler(
         specialization: doctor.specialization,
         slotDurationMinutes: doctor.slotDurationMinutes,
         appointmentFeePaise: doctor.appointmentFeePaise,
+        averageRating: doctor.averageRating,
+        reviewCount: doctor.reviewCount,
       },
       availability: availabilityWithoutTaken,
     });
