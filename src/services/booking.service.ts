@@ -2,6 +2,7 @@ import { pool } from "../config/db";
 import { env } from "../config/env";
 import { razorpay } from "../config/razorpay";
 import { AppError } from "../middlewares/error.middleware";
+import { createBookingConfirmedNotification } from "./notification.service";
 
 export type ReserveResult =
   | { ok: true; booking: any }
@@ -51,10 +52,8 @@ export const reserveBooking = async (
 
       // Expired hold — reclaim in place. The WHERE re-checks "still pending
       // AND still expired" so this can never overwrite a fresh hold, even if
-      // the code above is refactored. (It uses the database clock; if it
-      // disagrees with the app clock by a hair, the safe outcome is a
-      // harmless SLOT_RESERVED and a retry.) The previous order id is
-      // cleared here, but its history lives on in "BookingPayment".
+      // the code above is refactored. The previous order id is cleared here,
+      // but its history lives on in "BookingPayment".
       const updateRes = await client.query(
         `UPDATE "Booking"
          SET "patientId" = $1, status = 'PENDING_PAYMENT', amount = $2,
@@ -232,6 +231,23 @@ export const confirmBooking = async (
         `UPDATE "BookingPayment" SET status = 'CONFIRMED', "razorpayPaymentId" = $1, "paidAt" = NOW() WHERE id = $2`,
         [paymentId, bp.id],
       );
+
+      // The confirmation message is written in the same transaction, so a
+      // confirmed booking can't exist without one. It sits behind a
+      // savepoint: if the notification code ever fails, we undo only the
+      // message and still confirm the paid booking.
+      await client.query("SAVEPOINT booking_notification");
+      try {
+        await createBookingConfirmedNotification(client, booking.id);
+        await client.query("RELEASE SAVEPOINT booking_notification");
+      } catch (notifyErr) {
+        await client.query("ROLLBACK TO SAVEPOINT booking_notification");
+        console.error(
+          "Failed to create booking confirmation notification:",
+          notifyErr,
+        );
+      }
+
       await client.query("COMMIT");
       return "CONFIRMED";
     }
