@@ -20,7 +20,9 @@ import {
 
 export const registerPatient = asyncHandler(
   async (req: Request, res: Response) => {
-    const { name, email, password } = RegisterPatientSchema.parse(req.body);
+    const { name, email, password, phone } = RegisterPatientSchema.parse(
+      req.body,
+    );
 
     const existingUser = await pool.query(
       'SELECT id FROM "User" WHERE email = $1',
@@ -34,8 +36,8 @@ export const registerPatient = asyncHandler(
     const otp = generateOtp();
 
     const result = await pool.query(
-      `INSERT INTO "User" (name, email, "passwordHash", role, "isVerified", "otpCode", "otpExpiresAt", "otpAttempts", "otpLastSentAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+      `INSERT INTO "User" (name, email, "passwordHash", role, "isVerified", "otpCode", "otpExpiresAt", "otpAttempts", "otpLastSentAt", phone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
       [
         name,
         email,
@@ -46,6 +48,7 @@ export const registerPatient = asyncHandler(
         otpExpiryDate(),
         0,
         new Date(),
+        phone ?? null,
       ],
     );
 

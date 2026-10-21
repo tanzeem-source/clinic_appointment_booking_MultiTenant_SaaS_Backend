@@ -10,6 +10,7 @@ import doctorRoutes from "./routes/doctor.route";
 import bookingRoutes from "./routes/booking.route";
 import reviewRoutes from "./routes/review.route";
 import notificationRoutes from "./routes/notification.route";
+import patientRoutes from "./routes/patient.route";
 import devRoutes from "./dev/dev.route";
 import { handleWebhook } from "./controllers/payment.controller";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
@@ -48,6 +49,7 @@ app.use("/api/doctors", doctorRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/patients", patientRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

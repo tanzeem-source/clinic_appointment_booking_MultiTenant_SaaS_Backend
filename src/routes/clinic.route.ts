@@ -9,6 +9,7 @@ import { requireActiveSubscription } from "../middlewares/subscription.middlewar
 import {
   getMyClinic,
   updateMyClinic,
+  listClinicBookings,
   searchClinics,
   getClinicById,
 } from "../controllers/clinic.controller";
@@ -24,6 +25,7 @@ const searchLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Clinic-admin routes — specific paths, registered before the generic /:id below.
 router.get("/me", authenticateJWT, requireRole(["CLINIC_ADMIN"]), getMyClinic);
 router.put(
   "/me",
@@ -32,6 +34,18 @@ router.put(
   updateMyClinic,
 );
 
+// Read-only, so deliberately outside the subscription gate: patients have
+// already paid for these appointments, and a lapsed clinic still needs to see
+// who is coming. Revisit when subscription-lapse rules are decided.
+// (CLINIC_STAFF gets added here when staff accounts exist.)
+router.get(
+  "/me/bookings",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  listClinicBookings,
+);
+
+// TEMP: throwaway route to prove the subscription gate works. Delete it.
 router.get(
   "/me/gate-check",
   authenticateJWT,

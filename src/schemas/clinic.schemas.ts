@@ -29,5 +29,23 @@ export const ClinicIdParamSchema = z.object({
 });
 
 export const ClinicIdRouteParamSchema = z.object({
-  clinicId: z.string().uuid('Invalid clinic id')
+  clinicId: z.string().uuid("Invalid clinic id"),
 });
+
+const dateString = (label: string) =>
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} must be in YYYY-MM-DD format`);
+
+export const ListClinicBookingsQuerySchema = z
+  .object({
+    doctorId: z.string().uuid("Invalid doctor id").optional(),
+    from: dateString("from").optional(),
+    to: dateString("to").optional(),
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(25),
+  })
+  .refine((data) => !data.from || !data.to || data.from <= data.to, {
+    message: "from must not be after to",
+    path: ["to"],
+  });
