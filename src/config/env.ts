@@ -24,6 +24,10 @@ const envSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().default(60),
 
+  // How long password reset is blocked for an account after the maximum
+  // number of wrong reset codes.
+  RESET_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(30),
+
   RAZORPAY_KEY_ID: z.string().min(1, "RAZORPAY_KEY_ID is required"),
   RAZORPAY_KEY_SECRET: z.string().min(1, "RAZORPAY_KEY_SECRET is required"),
   RAZORPAY_WEBHOOK_SECRET: z

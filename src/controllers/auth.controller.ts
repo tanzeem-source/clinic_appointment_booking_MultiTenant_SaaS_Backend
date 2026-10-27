@@ -8,6 +8,8 @@ import {
   VerifyOTPSchema,
   ResendOTPSchema,
   LoginSchema,
+  ForgotPasswordSchema,
+  ResetPasswordSchema,
 } from "../schemas/auth.schemas";
 import { asyncHandler, AppError } from "../middlewares/error.middleware";
 import { generateOtp, hashOtp, otpExpiryDate } from "../services/otp.service";
@@ -264,3 +266,126 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
   });
   return res.status(200).json({ message: "Logged out." });
 });
+
+// Always answers the same way, whether or not the email belongs to a
+// verified account, is inside the resend cooldown, or is locked out after too
+// many wrong codes. That way this endpoint can't be used to discover who is
+// registered or who is locked. The email send isn't awaited, so the response
+// time doesn't give it away either.
+export const forgotPassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email } = ForgotPasswordSchema.parse(req.body);
+
+    const userRes = await pool.query(
+      'SELECT id, "isVerified", "resetOtpLastSentAt", "resetLockedUntil" FROM "User" WHERE email = $1',
+      [email],
+    );
+    const user = userRes.rows[0];
+
+    if (user && user.isVerified) {
+      const locked =
+        user.resetLockedUntil &&
+        new Date(user.resetLockedUntil).getTime() > Date.now();
+
+      const withinCooldown =
+        user.resetOtpLastSentAt &&
+        (Date.now() - new Date(user.resetOtpLastSentAt).getTime()) / 1000 <
+          env.OTP_RESEND_COOLDOWN_SECONDS;
+
+      if (!locked && !withinCooldown) {
+        const otp = generateOtp();
+
+        await pool.query(
+          `UPDATE "User"
+         SET "resetOtpCode" = $1, "resetOtpExpiresAt" = $2, "resetOtpAttempts" = 0, "resetOtpLastSentAt" = $3
+         WHERE id = $4`,
+          [hashOtp(otp), otpExpiryDate(), new Date(), user.id],
+        );
+
+        // TEMP (dev only): Resend can only email your own address until a domain
+        // is verified. Delete this line before deploying.
+        if (env.NODE_ENV === "development")
+          console.log("🔑 DEV reset code for", email, ":", otp);
+
+        void sendOtpEmail(email, otp, "Reset your password");
+      }
+    }
+
+    return res
+      .status(200)
+      .json({
+        message:
+          "If an account exists for that email, a reset code has been sent.",
+      });
+  },
+);
+
+// Every failure mode returns the same message and status, so a caller can't
+// tell a wrong code from an unknown email, an expired code, or a locked-out
+// account.
+const invalidResetCode = () =>
+  new AppError("Invalid or expired reset code. Please request a new one.", 400);
+
+export const resetPassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email, otp, newPassword } = ResetPasswordSchema.parse(req.body);
+
+    // Claim one attempt atomically BEFORE comparing the code. Every guess uses
+    // up an attempt in a single statement, so parallel requests can't get past
+    // the attempt limit. It only matches a verified account, not locked out,
+    // with an unexpired code that still has attempts left.
+    const claimRes = await pool.query(
+      `UPDATE "User" SET "resetOtpAttempts" = "resetOtpAttempts" + 1
+     WHERE email = $1
+       AND "isVerified" = TRUE
+       AND "resetOtpCode" IS NOT NULL
+       AND "resetOtpExpiresAt" > NOW()
+       AND "resetOtpAttempts" < $2
+       AND ("resetLockedUntil" IS NULL OR "resetLockedUntil" <= NOW())
+     RETURNING id, "resetOtpCode", "resetOtpAttempts"`,
+      [email, env.OTP_MAX_ATTEMPTS],
+    );
+    const claimed = claimRes.rows[0];
+    if (!claimed) throw invalidResetCode();
+
+    const submittedHash = hashOtp(otp);
+
+    if (submittedHash !== claimed.resetOtpCode) {
+      // That was the last allowed guess: lock password reset for this account
+      // and wipe the code, so even the right code stops working. Only one
+      // request can ever see the final attempt number, since each claim above
+      // increments the counter one at a time.
+      if (claimed.resetOtpAttempts >= env.OTP_MAX_ATTEMPTS) {
+        await pool.query(
+          `UPDATE "User"
+         SET "resetLockedUntil" = NOW() + make_interval(mins => $2),
+             "resetOtpCode" = NULL, "resetOtpExpiresAt" = NULL
+         WHERE id = $1`,
+          [claimed.id, env.RESET_LOCKOUT_MINUTES],
+        );
+      }
+      throw invalidResetCode();
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    // Single use: only succeeds if the code is still the one that was just
+    // checked, then clears it (and any lock). A second request with the same
+    // code finds nothing.
+    const updateRes = await pool.query(
+      `UPDATE "User"
+     SET "passwordHash" = $1, "resetOtpCode" = NULL, "resetOtpExpiresAt" = NULL,
+         "resetOtpAttempts" = 0, "resetOtpLastSentAt" = NULL, "resetLockedUntil" = NULL
+     WHERE id = $2 AND "resetOtpCode" = $3
+     RETURNING id`,
+      [passwordHash, claimed.id, submittedHash],
+    );
+    if (updateRes.rows.length === 0) throw invalidResetCode();
+
+    return res
+      .status(200)
+      .json({
+        message: "Password updated. You can now log in with your new password.",
+      });
+  },
+);

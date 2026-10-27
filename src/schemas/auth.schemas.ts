@@ -6,7 +6,7 @@ const emailSchema = z
   .toLowerCase()
   .trim();
 
-const passwordSchema = z
+export const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters")
   .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
@@ -46,4 +46,14 @@ export const ResendOTPSchema = z.object({
 export const LoginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, "Password is required"),
+});
+
+export const ForgotPasswordSchema = z.object({
+  email: emailSchema,
+});
+
+export const ResetPasswordSchema = z.object({
+  email: emailSchema,
+  otp: z.string().regex(/^\d{6}$/, "Reset code must be 6 digits"),
+  newPassword: passwordSchema,
 });
