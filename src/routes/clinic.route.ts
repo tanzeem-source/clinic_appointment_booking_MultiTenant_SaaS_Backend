@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import {
   authenticateJWT,
   requireRole,
+  requireActiveUser,
   AuthenticatedRequest,
 } from "../middlewares/auth.middleware";
 import { requireActiveSubscription } from "../middlewares/subscription.middleware";
@@ -13,6 +14,11 @@ import {
   searchClinics,
   getClinicById,
 } from "../controllers/clinic.controller";
+import {
+  createStaff,
+  listStaff,
+  updateStaff,
+} from "../controllers/staff.controller";
 import { listClinicDoctors } from "../controllers/doctor.controller";
 import { listClinicReviews } from "../controllers/review.controller";
 
@@ -36,13 +42,37 @@ router.put(
 
 // Read-only, so deliberately outside the subscription gate: patients have
 // already paid for these appointments, and a lapsed clinic still needs to see
-// who is coming. Revisit when subscription-lapse rules are decided.
-// (CLINIC_STAFF gets added here when staff accounts exist.)
+// who is coming. Staff can use it too, but only while their account is
+// active (checked against the database on every request).
 router.get(
   "/me/bookings",
   authenticateJWT,
-  requireRole(["CLINIC_ADMIN"]),
+  requireRole(["CLINIC_ADMIN", "CLINIC_STAFF"]),
+  requireActiveUser,
   listClinicBookings,
+);
+
+// Staff management is admin-only. Creating staff needs an active subscription;
+// listing and deactivating deliberately don't, so a lapsed clinic can still
+// remove someone's access.
+router.post(
+  "/me/staff",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  requireActiveSubscription,
+  createStaff,
+);
+router.get(
+  "/me/staff",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  listStaff,
+);
+router.patch(
+  "/me/staff/:id",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  updateStaff,
 );
 
 // TEMP: throwaway route to prove the subscription gate works. Delete it.

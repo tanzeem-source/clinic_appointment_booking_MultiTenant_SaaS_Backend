@@ -245,6 +245,15 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError("Please verify your email before logging in.", 403);
   }
 
+  // Only reached with a correct password, so this doesn't reveal which
+  // emails are registered.
+  if (!user.isActive) {
+    throw new AppError(
+      "This account has been deactivated. Please contact your clinic administrator.",
+      403,
+    );
+  }
+
   const token = signToken({
     userId: user.id,
     role: user.role,
