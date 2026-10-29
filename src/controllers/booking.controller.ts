@@ -183,13 +183,18 @@ export const verifyBookingPayment = asyncHandler(
   },
 );
 
+// Names its columns on purpose: it shows the patient whether the clinic has
+// recorded their visit (visitStatus), but never which staff member recorded it.
 export const listMyBookings = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const patientId = req.user?.userId;
     if (!patientId) throw new AppError("Not authenticated.", 401);
 
     const result = await pool.query(
-      `SELECT b.*, d.name AS "doctorName", t.name AS "clinicName"
+      `SELECT b.id, b."doctorId", b."tenantId", b.date, b."startTime", b."endTime", b.status,
+            b.amount, b.currency, b."razorpayOrderId", b."razorpayPaymentId",
+            b."expiresAt", b."createdAt", b."confirmedAt", b."visitStatus", b."visitMarkedAt",
+            d.name AS "doctorName", t.name AS "clinicName"
      FROM "Booking" b
      JOIN "Doctor" d ON d.id = b."doctorId"
      JOIN "Tenant" t ON t.id = b."tenantId"

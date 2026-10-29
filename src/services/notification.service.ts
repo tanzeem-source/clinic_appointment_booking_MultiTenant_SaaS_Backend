@@ -1,9 +1,8 @@
 import { PoolClient } from "pg";
 
-// Add new types here as features arrive (review requests, reassignment
-// alerts, subscription reminders). "type" is plain text in the database, so
-// adding one never needs a migration.
-export type NotificationType = "BOOKING_CONFIRMED";
+// Add new types here as features arrive. "type" is plain text in the
+// database, so adding one never needs a migration.
+export type NotificationType = "BOOKING_CONFIRMED" | "REVIEW_REQUEST";
 
 export interface NewNotification {
   userId: string;
@@ -89,6 +88,49 @@ export const createBookingConfirmedNotification = async (
       startTime,
       endTime,
       mapsUrl,
+    },
+  });
+};
+
+// Asks the patient to review a completed visit. At most one per booking:
+// if the outcome is flipped away and back, a second request isn't sent.
+export const createReviewRequestNotification = async (
+  client: PoolClient,
+  bookingId: string,
+): Promise<void> => {
+  const res = await client.query(
+    `SELECT b.id, b."patientId", b."doctorId", b.date,
+            d.name AS "doctorName", t.name AS "clinicName"
+     FROM "Booking" b
+     JOIN "Doctor" d ON d.id = b."doctorId"
+     JOIN "Tenant" t ON t.id = b."tenantId"
+     WHERE b.id = $1`,
+    [bookingId],
+  );
+  const b = res.rows[0];
+  if (!b) return;
+
+  const existing = await client.query(
+    `SELECT 1 FROM "Notification"
+     WHERE "userId" = $1 AND type = 'REVIEW_REQUEST' AND data->>'bookingId' = $2
+     LIMIT 1`,
+    [b.patientId, bookingId],
+  );
+  if (existing.rows.length > 0) return;
+
+  await createNotification(client, {
+    userId: b.patientId,
+    type: "REVIEW_REQUEST",
+    title: "How was your visit?",
+    body:
+      `Thanks for visiting ${b.doctorName} at ${b.clinicName} on ${formatDate(b.date)}. ` +
+      `You can now leave a review for the doctor and for the clinic.`,
+    data: {
+      bookingId: b.id,
+      doctorId: b.doctorId,
+      doctorName: b.doctorName,
+      clinicName: b.clinicName,
+      date: b.date,
     },
   });
 };

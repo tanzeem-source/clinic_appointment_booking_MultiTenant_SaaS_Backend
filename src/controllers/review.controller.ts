@@ -42,14 +42,15 @@ export const createReview = asyncHandler(
       throw new AppError("Only completed appointments can be reviewed.", 422);
     }
 
-    // "Completed" = the appointment's own date/time has passed. date and
-    // startTime come back as plain strings (see the DATE type parser in
-    // config/db.ts), so this combines them as local time, the same way the
-    // rest of the app treats appointment times.
-    const appointmentTime = new Date(`${booking.date}T${booking.startTime}`);
-    if (appointmentTime > new Date()) {
+    // A visit can be reviewed only once the clinic has recorded that it took
+    // place. This replaces the old "appointment time has passed" rule, which let
+    // a patient review a visit they never attended.
+    if (booking.visitStatus === "NO_SHOW") {
+      throw new AppError("Only visits that took place can be reviewed.", 422);
+    }
+    if (booking.visitStatus !== "COMPLETED") {
       throw new AppError(
-        "You can review this appointment once it has taken place.",
+        "The clinic has not confirmed this visit yet. You can review it once they do.",
         422,
       );
     }

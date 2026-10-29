@@ -42,6 +42,12 @@ export const ListClinicBookingsQuerySchema = z
     doctorId: z.string().uuid("Invalid doctor id").optional(),
     from: dateString("from").optional(),
     to: dateString("to").optional(),
+    // PENDING = no outcome recorded yet.
+    visitStatus: z
+      .enum(["PENDING", "COMPLETED", "NO_SHOW"], {
+        error: "visitStatus must be PENDING, COMPLETED or NO_SHOW",
+      })
+      .optional(),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(25),
   })

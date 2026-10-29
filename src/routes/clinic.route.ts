@@ -19,6 +19,7 @@ import {
   listStaff,
   updateStaff,
 } from "../controllers/staff.controller";
+import { markVisitOutcome } from "../controllers/visit.controller";
 import { listClinicDoctors } from "../controllers/doctor.controller";
 import { listClinicReviews } from "../controllers/review.controller";
 
@@ -40,16 +41,24 @@ router.put(
   updateMyClinic,
 );
 
-// Read-only, so deliberately outside the subscription gate: patients have
-// already paid for these appointments, and a lapsed clinic still needs to see
-// who is coming. Staff can use it too, but only while their account is
-// active (checked against the database on every request).
+// Deliberately outside the subscription gate: patients have already paid for
+// these appointments, so a lapsed clinic still needs to see who is coming and
+// to confirm visits (which is what lets patients review them). Staff can use
+// these too, but only while their account is active (checked against the
+// database on every request).
 router.get(
   "/me/bookings",
   authenticateJWT,
   requireRole(["CLINIC_ADMIN", "CLINIC_STAFF"]),
   requireActiveUser,
   listClinicBookings,
+);
+router.patch(
+  "/me/bookings/:id/visit",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN", "CLINIC_STAFF"]),
+  requireActiveUser,
+  markVisitOutcome,
 );
 
 // Staff management is admin-only. Creating staff needs an active subscription;
