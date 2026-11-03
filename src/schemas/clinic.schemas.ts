@@ -48,6 +48,12 @@ export const ListClinicBookingsQuerySchema = z
         error: "visitStatus must be PENDING, COMPLETED or NO_SHOW",
       })
       .optional(),
+    needsReschedule: z
+      .enum(["true", "false"], {
+        error: "needsReschedule must be true or false",
+      })
+      .transform((v) => v === "true")
+      .optional(),
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(25),
   })

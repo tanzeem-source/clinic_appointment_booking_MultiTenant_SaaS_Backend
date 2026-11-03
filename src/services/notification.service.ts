@@ -1,8 +1,12 @@
-import { PoolClient } from "pg";
+import { PoolClient } from 'pg';
 
 // Add new types here as features arrive. "type" is plain text in the
 // database, so adding one never needs a migration.
-export type NotificationType = "BOOKING_CONFIRMED" | "REVIEW_REQUEST";
+export type NotificationType =
+  | 'BOOKING_CONFIRMED'
+  | 'REVIEW_REQUEST'
+  | 'DOCTOR_UNAVAILABLE'
+  | 'APPOINTMENT_RESTORED';
 
 export interface NewNotification {
   userId: string;
@@ -13,36 +17,29 @@ export interface NewNotification {
 }
 
 // Takes a client so the caller can run it inside its own transaction.
-export const createNotification = async (
-  client: PoolClient,
-  n: NewNotification,
-): Promise<void> => {
+export const createNotification = async (client: PoolClient, n: NewNotification): Promise<void> => {
   await client.query(
     `INSERT INTO "Notification" ("userId", type, title, body, data)
      VALUES ($1, $2, $3, $4, $5)`,
-    [n.userId, n.type, n.title, n.body, JSON.stringify(n.data ?? {})],
+    [n.userId, n.type, n.title, n.body, JSON.stringify(n.data ?? {})]
   );
 };
 
 // A plain Google Maps search link: no API key needed. It searches for the
 // clinic by name and address, so it can be imprecise for a vague address.
-export const buildMapsUrl = (
-  clinicName: string,
-  address: string,
-  city: string,
-): string => {
-  const query = [clinicName, address, city].filter(Boolean).join(", ");
+export const buildMapsUrl = (clinicName: string, address: string, city: string): string => {
+  const query = [clinicName, address, city].filter(Boolean).join(', ');
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 };
 
 // date arrives as "YYYY-MM-DD" (see the DATE type parser in config/db.ts).
 const formatDate = (dateStr: string): string => {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-IN", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-IN', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
   });
 };
 
@@ -50,10 +47,7 @@ const formatTime = (t: string): string => String(t).slice(0, 5);
 
 // Builds and stores the patient's booking confirmation. Call it inside the
 // transaction that confirms the booking.
-export const createBookingConfirmedNotification = async (
-  client: PoolClient,
-  bookingId: string,
-): Promise<void> => {
+export const createBookingConfirmedNotification = async (client: PoolClient, bookingId: string): Promise<void> => {
   const res = await client.query(
     `SELECT b.id, b."patientId", b.date, b."startTime", b."endTime",
             d.name AS "doctorName", t.name AS "clinicName", t.address, t.city
@@ -61,7 +55,7 @@ export const createBookingConfirmedNotification = async (
      JOIN "Doctor" d ON d.id = b."doctorId"
      JOIN "Tenant" t ON t.id = b."tenantId"
      WHERE b.id = $1`,
-    [bookingId],
+    [bookingId]
   );
   const b = res.rows[0];
   if (!b) return;
@@ -73,8 +67,8 @@ export const createBookingConfirmedNotification = async (
 
   await createNotification(client, {
     userId: b.patientId,
-    type: "BOOKING_CONFIRMED",
-    title: "Booking confirmed",
+    type: 'BOOKING_CONFIRMED',
+    title: 'Booking confirmed',
     body:
       `Your appointment with ${b.doctorName} at ${b.clinicName} is confirmed for ${dateText}, ` +
       `${startTime} to ${endTime}. Address: ${b.address}, ${b.city}. Directions: ${mapsUrl}`,
@@ -87,17 +81,14 @@ export const createBookingConfirmedNotification = async (
       date: b.date,
       startTime,
       endTime,
-      mapsUrl,
-    },
+      mapsUrl
+    }
   });
 };
 
 // Asks the patient to review a completed visit. At most one per booking:
 // if the outcome is flipped away and back, a second request isn't sent.
-export const createReviewRequestNotification = async (
-  client: PoolClient,
-  bookingId: string,
-): Promise<void> => {
+export const createReviewRequestNotification = async (client: PoolClient, bookingId: string): Promise<void> => {
   const res = await client.query(
     `SELECT b.id, b."patientId", b."doctorId", b.date,
             d.name AS "doctorName", t.name AS "clinicName"
@@ -105,7 +96,7 @@ export const createReviewRequestNotification = async (
      JOIN "Doctor" d ON d.id = b."doctorId"
      JOIN "Tenant" t ON t.id = b."tenantId"
      WHERE b.id = $1`,
-    [bookingId],
+    [bookingId]
   );
   const b = res.rows[0];
   if (!b) return;
@@ -114,14 +105,14 @@ export const createReviewRequestNotification = async (
     `SELECT 1 FROM "Notification"
      WHERE "userId" = $1 AND type = 'REVIEW_REQUEST' AND data->>'bookingId' = $2
      LIMIT 1`,
-    [b.patientId, bookingId],
+    [b.patientId, bookingId]
   );
   if (existing.rows.length > 0) return;
 
   await createNotification(client, {
     userId: b.patientId,
-    type: "REVIEW_REQUEST",
-    title: "How was your visit?",
+    type: 'REVIEW_REQUEST',
+    title: 'How was your visit?',
     body:
       `Thanks for visiting ${b.doctorName} at ${b.clinicName} on ${formatDate(b.date)}. ` +
       `You can now leave a review for the doctor and for the clinic.`,
@@ -130,7 +121,74 @@ export const createReviewRequestNotification = async (
       doctorId: b.doctorId,
       doctorName: b.doctorName,
       clinicName: b.clinicName,
+      date: b.date
+    }
+  });
+};
+
+const getBookingDetails = async (client: PoolClient, bookingId: string) => {
+  const res = await client.query(
+    `SELECT b.id, b."patientId", b."doctorId", b.date, b."startTime", b."endTime",
+            d.name AS "doctorName", t.name AS "clinicName", t."contactInfo"
+     FROM "Booking" b
+     JOIN "Doctor" d ON d.id = b."doctorId"
+     JOIN "Tenant" t ON t.id = b."tenantId"
+     WHERE b.id = $1`,
+    [bookingId]
+  );
+  return res.rows[0];
+};
+
+// Tells a patient their doctor can't make it. Sent when an admin marks the
+// doctor unavailable on a date the patient has a confirmed appointment.
+export const createDoctorUnavailableNotification = async (client: PoolClient, bookingId: string): Promise<void> => {
+  const b = await getBookingDetails(client, bookingId);
+  if (!b) return;
+
+  const startTime = formatTime(b.startTime);
+
+  await createNotification(client, {
+    userId: b.patientId,
+    type: 'DOCTOR_UNAVAILABLE',
+    title: 'Your appointment needs to be rescheduled',
+    body:
+      `${b.doctorName} will not be available at ${b.clinicName} on ${formatDate(b.date)}, so your ` +
+      `${startTime} appointment needs to be rescheduled. The clinic will contact you to arrange a new time. ` +
+      `You can also reach them on ${b.contactInfo}.`,
+    data: {
+      bookingId: b.id,
+      doctorId: b.doctorId,
+      doctorName: b.doctorName,
+      clinicName: b.clinicName,
+      clinicContact: b.contactInfo,
       date: b.date,
-    },
+      startTime
+    }
+  });
+};
+
+// Sent when the admin reopens a day they had marked unavailable, so patients
+// who were told to expect a reschedule know their appointment stands.
+export const createAppointmentRestoredNotification = async (client: PoolClient, bookingId: string): Promise<void> => {
+  const b = await getBookingDetails(client, bookingId);
+  if (!b) return;
+
+  const startTime = formatTime(b.startTime);
+
+  await createNotification(client, {
+    userId: b.patientId,
+    type: 'APPOINTMENT_RESTORED',
+    title: 'Your appointment is back on',
+    body:
+      `Good news: ${b.doctorName} is available again, so your appointment at ${b.clinicName} on ` +
+      `${formatDate(b.date)} at ${startTime} is going ahead as booked.`,
+    data: {
+      bookingId: b.id,
+      doctorId: b.doctorId,
+      doctorName: b.doctorName,
+      clinicName: b.clinicName,
+      date: b.date,
+      startTime
+    }
   });
 };

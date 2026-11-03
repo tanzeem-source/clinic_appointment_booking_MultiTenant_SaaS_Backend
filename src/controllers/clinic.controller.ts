@@ -87,7 +87,7 @@ export const listClinicBookings = asyncHandler(
     if (!tenantId)
       throw new AppError("No clinic associated with this account.", 400);
 
-    const { doctorId, from, to, visitStatus, page, limit } =
+    const { doctorId, from, to, visitStatus, needsReschedule, page, limit } =
       ListClinicBookingsQuerySchema.parse(req.query);
     const offset = (page - 1) * limit;
 
@@ -108,6 +108,11 @@ export const listClinicBookings = asyncHandler(
       params.push(visitStatus);
       where += ` AND b."visitStatus" = $${params.length}`;
     }
+    if (needsReschedule === true) {
+      where += ` AND b."needsReschedule" = TRUE`;
+    } else if (needsReschedule === false) {
+      where += ` AND b."needsReschedule" = FALSE`;
+    }
 
     const filterParams = [...params];
     params.push(limit, offset);
@@ -115,7 +120,8 @@ export const listClinicBookings = asyncHandler(
     const [rowsRes, countRes] = await Promise.all([
       pool.query(
         `SELECT b.id, b."doctorId", d.name AS "doctorName", b.date, b."startTime", b."endTime",
-              b."confirmedAt", b."visitStatus", u.name AS "patientName", u.phone AS "patientPhone"
+              b."confirmedAt", b."visitStatus", b."needsReschedule",
+              u.name AS "patientName", u.phone AS "patientPhone"
        FROM "Booking" b
        JOIN "Doctor" d ON d.id = b."doctorId"
        JOIN "User" u ON u.id = b."patientId"
@@ -139,6 +145,7 @@ export const listClinicBookings = asyncHandler(
       endTime: String(r.endTime).slice(0, 5),
       confirmedAt: r.confirmedAt,
       visitStatus: r.visitStatus,
+      needsReschedule: r.needsReschedule,
       patientName: r.patientName,
       patientPhone: r.patientPhone,
     }));
