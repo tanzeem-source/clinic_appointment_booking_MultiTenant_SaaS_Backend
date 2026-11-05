@@ -20,6 +20,11 @@ import {
   updateStaff,
 } from "../controllers/staff.controller";
 import { markVisitOutcome } from "../controllers/visit.controller";
+import {
+  getRescheduleOptions,
+  rescheduleBooking,
+  cancelBookingWithRefund,
+} from "../controllers/reschedule.controller";
 import { listClinicDoctors } from "../controllers/doctor.controller";
 import { listClinicReviews } from "../controllers/review.controller";
 
@@ -59,6 +64,29 @@ router.patch(
   requireRole(["CLINIC_ADMIN", "CLINIC_STAFF"]),
   requireActiveUser,
   markVisitOutcome,
+);
+
+// Moving or cancelling a paid booking after a doctor became unavailable is a
+// decision for the clinic administrator, so these are admin-only. Also outside
+// the subscription gate: the patient has already paid, and a lapsed clinic
+// still owes them a new time or a refund.
+router.get(
+  "/me/bookings/:id/reschedule-options",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  getRescheduleOptions,
+);
+router.post(
+  "/me/bookings/:id/reschedule",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  rescheduleBooking,
+);
+router.post(
+  "/me/bookings/:id/cancel",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  cancelBookingWithRefund,
 );
 
 // Staff management is admin-only. Creating staff needs an active subscription;

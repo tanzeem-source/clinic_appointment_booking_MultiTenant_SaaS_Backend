@@ -110,3 +110,31 @@ export const computeWeeklyAvailability = (
     return { date: dateStr, slots };
   });
 };
+
+// Start times for ONE specific date, from the weekly template and overrides.
+// Unlike computeWeeklyAvailability this isn't limited to the current calendar
+// week and doesn't drop slots that have already passed today: callers apply
+// their own "must be in the future" rule. An impossible date such as
+// 2026-02-31 returns no slots.
+export const getSlotsForDate = (
+  weeklyRanges: WeeklyRange[],
+  overrides: DateOverride[],
+  slotDurationMinutes: number,
+  dateStr: string,
+): string[] => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  if (toDateString(date) !== dateStr) return [];
+
+  if (overrides.some((o) => o.date === dateStr && o.isUnavailable)) return [];
+
+  const dayOfWeek = date.getDay();
+  const slots = weeklyRanges
+    .filter((r) => r.dayOfWeek === dayOfWeek)
+    .flatMap((r) =>
+      splitIntoSlots(r.startTime, r.endTime, slotDurationMinutes),
+    );
+
+  slots.sort();
+  return slots;
+};
