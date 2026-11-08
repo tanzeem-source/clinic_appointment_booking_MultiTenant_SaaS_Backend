@@ -13,6 +13,42 @@ import {
 } from "../services/payment.service";
 import { confirmBooking, processRefund } from "../services/booking.service";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type SubscriptionState =
+  | "NOT_SUBSCRIBED"
+  | "ACTIVE"
+  | "EXPIRING_SOON"
+  | "EXPIRED"
+  | "INACTIVE";
+
+// A plain-language state for a frontend banner. EXPIRING_SOON means 7 days or
+// less remain, matching the first reminder.
+const describeSubscription = (
+  status: string,
+  expiresAtRaw: Date | string | null,
+): { state: SubscriptionState; daysRemaining: number | null } => {
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
+
+  if (!expiresAt) {
+    return {
+      state: status === "ACTIVE" ? "ACTIVE" : "NOT_SUBSCRIBED",
+      daysRemaining: null,
+    };
+  }
+
+  const msLeft = expiresAt.getTime() - Date.now();
+  if (msLeft <= 0) return { state: "EXPIRED", daysRemaining: 0 };
+
+  const daysRemaining = Math.ceil(msLeft / DAY_MS);
+  if (status !== "ACTIVE") return { state: "INACTIVE", daysRemaining };
+
+  return {
+    state: daysRemaining <= 7 ? "EXPIRING_SOON" : "ACTIVE",
+    daysRemaining,
+  };
+};
+
 export const getSubscription = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const tenantId = req.user?.tenantId;
@@ -26,6 +62,11 @@ export const getSubscription = asyncHandler(
     const tenant = result.rows[0];
     if (!tenant) throw new AppError("Clinic not found.", 404);
 
+    const { state, daysRemaining } = describeSubscription(
+      tenant.subscriptionStatus,
+      tenant.subscriptionExpiresAt,
+    );
+
     return res.status(200).json({
       subscriptionStatus: tenant.subscriptionStatus,
       subscriptionExpiresAt: tenant.subscriptionExpiresAt,
@@ -33,6 +74,8 @@ export const getSubscription = asyncHandler(
         tenant.subscriptionStatus,
         tenant.subscriptionExpiresAt,
       ),
+      state,
+      daysRemaining,
       priceInr: env.SUBSCRIPTION_AMOUNT_PAISE / 100,
       periodDays: env.SUBSCRIPTION_PERIOD_DAYS,
     });

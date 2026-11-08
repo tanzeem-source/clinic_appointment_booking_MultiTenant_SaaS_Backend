@@ -6,8 +6,21 @@ import {
   ListNotificationsQuerySchema,
   NotificationIdParamSchema,
 } from "../schemas/notification.schemas";
+import { ensureSubscriptionReminders } from "../services/subscription-reminder.service";
 
 const NOTIFICATION_COLUMNS = `id, type, title, body, data, "isRead", "createdAt", "readAt"`;
+
+// There's no background job, so subscription reminders are created when a
+// clinic admin opens their inbox or the unread badge refreshes. A failure
+// here must never break the inbox itself.
+const refreshReminders = async (req: AuthenticatedRequest): Promise<void> => {
+  if (req.user?.role !== "CLINIC_ADMIN" || !req.user.tenantId) return;
+  try {
+    await ensureSubscriptionReminders(req.user.tenantId, req.user.userId);
+  } catch (err) {
+    console.error("Failed to refresh subscription reminders:", err);
+  }
+};
 
 // Every query below is scoped to the logged-in user's own id, so nobody can
 // read or mark someone else's notifications by guessing an id.
@@ -16,6 +29,8 @@ export const listMyNotifications = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) throw new AppError("Not authenticated.", 401);
+
+    await refreshReminders(req);
 
     const { page, limit, unreadOnly } = ListNotificationsQuerySchema.parse(
       req.query,
@@ -54,6 +69,8 @@ export const getUnreadCount = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user?.userId;
     if (!userId) throw new AppError("Not authenticated.", 401);
+
+    await refreshReminders(req);
 
     const result = await pool.query(
       `SELECT COUNT(*)::int AS unread FROM "Notification" WHERE "userId" = $1 AND "isRead" = FALSE`,

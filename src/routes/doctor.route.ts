@@ -10,12 +10,12 @@ import {
   removeOverride,
   getDoctorAvailability,
 } from "../controllers/doctor.controller";
-import { listDoctorReviews } from '../controllers/review.controller';
+import { listDoctorReviews } from "../controllers/review.controller";
 
 const router = Router();
 
-// Clinic-admin routes — behind the subscription gate, since managing
-// doctors and schedules is a paid feature.
+// Clinic-admin routes that change what a clinic offers need an active
+// subscription.
 router.post(
   "/",
   authenticateJWT,
@@ -44,24 +44,27 @@ router.put(
   requireActiveSubscription,
   setWeeklyAvailability,
 );
+
+// Marking a doctor unavailable (and reopening the day) deliberately does NOT
+// need an active subscription. An override only removes slots, it never
+// creates bookings, and a lapsed clinic must still be able to flag patients
+// who have already paid so it can move or refund them.
 router.post(
   "/:id/overrides",
   authenticateJWT,
   requireRole(["CLINIC_ADMIN"]),
-  requireActiveSubscription,
   addOverride,
 );
 router.delete(
   "/:id/overrides/:overrideId",
   authenticateJWT,
   requireRole(["CLINIC_ADMIN"]),
-  requireActiveSubscription,
   removeOverride,
 );
 
 // Public — a GET on the same "/:id/availability" path as the admin PUT
 // above; Express distinguishes them by method, so this is safe.
 router.get("/:id/availability", getDoctorAvailability);
-router.get('/:id/reviews', listDoctorReviews);
+router.get("/:id/reviews", listDoctorReviews);
 
 export default router;
