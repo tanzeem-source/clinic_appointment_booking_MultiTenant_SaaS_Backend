@@ -38,6 +38,10 @@ const envSchema = z.object({
   SUBSCRIPTION_PERIOD_DAYS: z.coerce.number().int().positive().default(30),
 
   BOOKING_HOLD_MINUTES: z.coerce.number().int().positive().default(10),
+
+  // Shown at the top of every receipt PDF.
+  PLATFORM_NAME: z.string().min(1).default("Clinic Booking Platform"),
+  PLATFORM_ADDRESS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

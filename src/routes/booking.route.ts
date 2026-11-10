@@ -6,6 +6,10 @@ import {
   verifyBookingPayment,
   listMyBookings,
 } from "../controllers/booking.controller";
+import {
+  listBookingReceipts,
+  downloadBookingReceipt,
+} from "../controllers/invoice.controller";
 
 const router = Router();
 
@@ -15,6 +19,14 @@ const bookingLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many booking attempts. Please try again later." },
+});
+
+const pdfLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many downloads. Please try again later." },
 });
 
 router.post(
@@ -31,5 +43,20 @@ router.post(
   verifyBookingPayment,
 );
 router.get("/me", authenticateJWT, requireRole(["PATIENT"]), listMyBookings);
+
+// Receipts for the patient's own booking payments.
+router.get(
+  "/receipts",
+  authenticateJWT,
+  requireRole(["PATIENT"]),
+  listBookingReceipts,
+);
+router.get(
+  "/receipts/:id/pdf",
+  authenticateJWT,
+  requireRole(["PATIENT"]),
+  pdfLimiter,
+  downloadBookingReceipt,
+);
 
 export default router;
