@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SPECIALIZATIONS } from "../constants/specializations";
 
 // subscriptionStatus is deliberately NOT included here — it's a billing
 // state that must only ever change via the payment flow (e.g. a payment
@@ -19,7 +20,18 @@ export const UpdateClinicSchema = z
   });
 
 export const SearchClinicsSchema = z.object({
-  city: z.string().min(1, "City is required"),
+  city: z.string().trim().min(1, "City is required").max(100),
+  // Matches the clinic's name.
+  q: z.string().trim().max(100).optional(),
+  // Only clinics with an active doctor of this specialization.
+  specialization: z
+    .enum(SPECIALIZATIONS, {
+      error:
+        "Unknown specialization. See GET /api/doctors/specializations for the list.",
+    })
+    .optional(),
+  minRating: z.coerce.number().min(0).max(5).optional(),
+  sort: z.enum(["rating", "reviews", "name"]).default("rating"),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(50).default(10),
 });

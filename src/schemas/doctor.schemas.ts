@@ -1,8 +1,14 @@
 import { z } from "zod";
+import { SPECIALIZATIONS } from "../constants/specializations";
+
+const specializationSchema = z.enum(SPECIALIZATIONS, {
+  error:
+    "Specialization must be one of the supported values. See GET /api/doctors/specializations.",
+});
 
 export const CreateDoctorSchema = z.object({
   name: z.string().min(2, "Doctor name is required"),
-  specialization: z.string().min(2).optional(),
+  specialization: specializationSchema,
   slotDurationMinutes: z.union([z.literal(15), z.literal(20), z.literal(30)], {
     error: "Slot duration must be 15, 20, or 30 minutes",
   }),
@@ -15,7 +21,7 @@ export const CreateDoctorSchema = z.object({
 export const UpdateDoctorSchema = z
   .object({
     name: z.string().min(2).optional(),
-    specialization: z.string().min(2).optional(),
+    specialization: specializationSchema.optional(),
     slotDurationMinutes: z
       .union([z.literal(15), z.literal(20), z.literal(30)], {
         error: "Slot duration must be 15, 20, or 30 minutes",

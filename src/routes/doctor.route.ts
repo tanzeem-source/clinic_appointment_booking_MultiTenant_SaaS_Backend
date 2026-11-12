@@ -1,4 +1,5 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import { authenticateJWT, requireRole } from "../middlewares/auth.middleware";
 import { requireActiveSubscription } from "../middlewares/subscription.middleware";
 import {
@@ -10,9 +11,25 @@ import {
   removeOverride,
   getDoctorAvailability,
 } from "../controllers/doctor.controller";
+import {
+  searchDoctors,
+  listSpecializations,
+} from "../controllers/search.controller";
 import { listDoctorReviews } from "../controllers/review.controller";
 
 const router = Router();
+
+const searchLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Public search. Registered first, before any "/:id" route, so "search" and
+// "specializations" are never mistaken for a doctor id.
+router.get("/search", searchLimiter, searchDoctors);
+router.get("/specializations", searchLimiter, listSpecializations);
 
 // Clinic-admin routes that change what a clinic offers need an active
 // subscription.

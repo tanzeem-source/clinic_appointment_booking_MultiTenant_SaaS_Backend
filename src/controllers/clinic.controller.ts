@@ -8,6 +8,7 @@ import {
   ClinicIdParamSchema,
   ListClinicBookingsQuerySchema,
 } from "../schemas/clinic.schemas";
+import { ACTIVE_CLINIC_SQL, containsPattern } from "../services/search.service";
 
 const FIELD_TO_COLUMN = {
   clinicName: "name",
@@ -19,6 +20,14 @@ const FIELD_TO_COLUMN = {
 // Columns safe to expose publicly. "email" is the clinic ADMIN's login
 // email — never returned from a public endpoint.
 const PUBLIC_CLINIC_COLUMNS = `id, name, city, address, "contactInfo", photos, "averageRating", "reviewCount", "createdAt"`;
+
+// The ORDER BY text comes only from this fixed map, never from the request,
+// and every option ends in t.id so paging is stable when values tie.
+const CLINIC_SORTS = {
+  rating: `t."averageRating" DESC, t."reviewCount" DESC, t.name ASC, t.id ASC`,
+  reviews: `t."reviewCount" DESC, t."averageRating" DESC, t.name ASC, t.id ASC`,
+  name: `t.name ASC, t.id ASC`,
+} as const;
 
 // Today's date in the server's local time, as YYYY-MM-DD. The rest of the
 // app treats dates as local, and the database clock is UTC, so using
@@ -159,30 +168,47 @@ export const listClinicBookings = asyncHandler(
   },
 );
 
+// Public. Only clinics with an active, unexpired subscription appear.
 export const searchClinics = asyncHandler(
   async (req: Request, res: Response) => {
-    const { city, page, limit } = SearchClinicsSchema.parse(req.query);
+    const { city, q, specialization, minRating, sort, page, limit } =
+      SearchClinicsSchema.parse(req.query);
     const offset = (page - 1) * limit;
-    const cityPattern = `%${city}%`;
+
+    const params: unknown[] = [containsPattern(city)];
+    let where = `${ACTIVE_CLINIC_SQL} AND t.city ILIKE $1`;
+
+    if (q) {
+      params.push(containsPattern(q));
+      where += ` AND t.name ILIKE $${params.length}`;
+    }
+    if (minRating !== undefined) {
+      params.push(minRating);
+      where += ` AND t."averageRating" >= $${params.length}`;
+    }
+    if (specialization) {
+      params.push(specialization);
+      where += ` AND EXISTS (
+      SELECT 1 FROM "Doctor" d
+      WHERE d."tenantId" = t.id AND d."isActive" = TRUE AND d.specialization = $${params.length}
+    )`;
+    }
+
+    const filterParams = [...params];
+    params.push(limit, offset);
 
     const [rowsResult, countResult] = await Promise.all([
       pool.query(
         `SELECT ${PUBLIC_CLINIC_COLUMNS}
-       FROM "Tenant"
-       WHERE "subscriptionStatus" = 'ACTIVE'
-         AND ("subscriptionExpiresAt" IS NULL OR "subscriptionExpiresAt" > NOW())
-         AND city ILIKE $1
-       ORDER BY "averageRating" DESC, name ASC
-       LIMIT $2 OFFSET $3`,
-        [cityPattern, limit, offset],
+       FROM "Tenant" t
+       WHERE ${where}
+       ORDER BY ${CLINIC_SORTS[sort]}
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
       ),
       pool.query(
-        `SELECT COUNT(*)::int AS total
-       FROM "Tenant"
-       WHERE "subscriptionStatus" = 'ACTIVE'
-         AND ("subscriptionExpiresAt" IS NULL OR "subscriptionExpiresAt" > NOW())
-         AND city ILIKE $1`,
-        [cityPattern],
+        `SELECT COUNT(*)::int AS total FROM "Tenant" t WHERE ${where}`,
+        filterParams,
       ),
     ]);
 
