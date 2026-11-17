@@ -57,7 +57,8 @@ export const searchDoctors = asyncHandler(
         `SELECT d.id, d.name, d.specialization, d."slotDurationMinutes", d."appointmentFeePaise",
               d."averageRating"::float AS "averageRating", d."reviewCount",
               t.id AS "clinicId", t.name AS "clinicName", t.city, t.address,
-              t."averageRating"::float AS "clinicAverageRating", t."reviewCount" AS "clinicReviewCount"
+              t."averageRating"::float AS "clinicAverageRating", t."reviewCount" AS "clinicReviewCount",
+              (SELECT cp.url FROM "ClinicPhoto" cp WHERE cp."tenantId" = t.id ORDER BY cp.position, cp."createdAt" LIMIT 1) AS "clinicPhotoUrl"
        FROM "Doctor" d
        JOIN "Tenant" t ON t.id = d."tenantId"
        WHERE ${where}
@@ -92,6 +93,7 @@ export const searchDoctors = asyncHandler(
           address: r.address,
           averageRating: r.clinicAverageRating,
           reviewCount: r.clinicReviewCount,
+          photoUrl: r.clinicPhotoUrl,
         },
       })),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },

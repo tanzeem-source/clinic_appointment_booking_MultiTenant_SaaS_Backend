@@ -7,6 +7,7 @@ import {
   AuthenticatedRequest,
 } from "../middlewares/auth.middleware";
 import { requireActiveSubscription } from "../middlewares/subscription.middleware";
+import { uploadSinglePhoto } from "../middlewares/upload.middleware";
 import {
   getMyClinic,
   updateMyClinic,
@@ -25,6 +26,11 @@ import {
   rescheduleBooking,
   cancelBookingWithRefund,
 } from "../controllers/reschedule.controller";
+import {
+  listMyPhotos,
+  uploadPhoto,
+  deletePhoto,
+} from "../controllers/photo.controller";
 import { listClinicDoctors } from "../controllers/doctor.controller";
 import { listClinicReviews } from "../controllers/review.controller";
 
@@ -37,6 +43,14 @@ const searchLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many uploads. Please try again later." },
+});
+
 // Clinic-admin routes — specific paths, registered before the generic /:id below.
 router.get("/me", authenticateJWT, requireRole(["CLINIC_ADMIN"]), getMyClinic);
 router.put(
@@ -44,6 +58,30 @@ router.put(
   authenticateJWT,
   requireRole(["CLINIC_ADMIN"]),
   updateMyClinic,
+);
+
+// Clinic photos. Admin-only, and outside the subscription gate like the rest
+// of the profile. Authentication and the role check run BEFORE the upload is
+// read, so a file is only accepted from a logged-in clinic admin.
+router.get(
+  "/me/photos",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  listMyPhotos,
+);
+router.post(
+  "/me/photos",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  uploadLimiter,
+  uploadSinglePhoto,
+  uploadPhoto,
+);
+router.delete(
+  "/me/photos/:id",
+  authenticateJWT,
+  requireRole(["CLINIC_ADMIN"]),
+  deletePhoto,
 );
 
 // Deliberately outside the subscription gate: patients have already paid for

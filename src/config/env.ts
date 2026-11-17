@@ -3,6 +3,13 @@ import { z } from "zod";
 
 dotenv.config();
 
+// A blank line in .env (CLOUDINARY_API_KEY=) arrives as an empty string; treat
+// it the same as not set.
+const optionalText = z
+  .string()
+  .optional()
+  .transform((v) => (v && v.trim() !== "" ? v.trim() : undefined));
+
 const envSchema = z.object({
   PORT: z.coerce.number().default(5000),
   NODE_ENV: z
@@ -42,6 +49,12 @@ const envSchema = z.object({
   // Shown at the top of every receipt PDF.
   PLATFORM_NAME: z.string().min(1).default("Clinic Booking Platform"),
   PLATFORM_ADDRESS: z.string().optional(),
+
+  // Clinic photo storage (Cloudinary). Optional: without all three, the server
+  // still starts and photo uploads answer 503.
+  CLOUDINARY_CLOUD_NAME: optionalText,
+  CLOUDINARY_API_KEY: optionalText,
+  CLOUDINARY_API_SECRET: optionalText,
 });
 
 const parsed = envSchema.safeParse(process.env);

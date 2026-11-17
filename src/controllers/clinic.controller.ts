@@ -17,9 +17,15 @@ const FIELD_TO_COLUMN = {
   contactInfo: "contactInfo",
 } as const;
 
-// Columns safe to expose publicly. "email" is the clinic ADMIN's login
-// email — never returned from a public endpoint.
-const PUBLIC_CLINIC_COLUMNS = `id, name, city, address, "contactInfo", photos, "averageRating", "reviewCount", "createdAt"`;
+// Columns safe to expose publicly, with the Tenant table aliased as "t". "email"
+// is the clinic ADMIN's login email, never returned from a public endpoint.
+// photos is a list of image URLs in display order (first = cover).
+const PUBLIC_CLINIC_COLUMNS = `t.id, t.name, t.city, t.address, t."contactInfo",
+  COALESCE(
+    (SELECT json_agg(cp.url ORDER BY cp.position, cp."createdAt") FROM "ClinicPhoto" cp WHERE cp."tenantId" = t.id),
+    '[]'::json
+  ) AS photos,
+  t."averageRating", t."reviewCount", t."createdAt"`;
 
 // The ORDER BY text comes only from this fixed map, never from the request,
 // and every option ends in t.id so paging is stable when values tie.
@@ -45,14 +51,21 @@ export const getMyClinic = asyncHandler(
     if (!tenantId)
       throw new AppError("No clinic associated with this account.", 400);
 
-    const result = await pool.query('SELECT * FROM "Tenant" WHERE id = $1', [
-      tenantId,
+    const [clinicRes, photosRes] = await Promise.all([
+      pool.query('SELECT * FROM "Tenant" WHERE id = $1', [tenantId]),
+      pool.query(
+        `SELECT id, url, position FROM "ClinicPhoto" WHERE "tenantId" = $1 ORDER BY position ASC, "createdAt" ASC`,
+        [tenantId],
+      ),
     ]);
-    const clinic = result.rows[0];
+    const clinic = clinicRes.rows[0];
 
     if (!clinic) throw new AppError("Clinic not found.", 404);
 
-    return res.status(200).json({ clinic });
+    // The admin sees photo ids too (needed to delete one), unlike the public list.
+    return res
+      .status(200)
+      .json({ clinic: { ...clinic, photos: photosRes.rows } });
   },
 );
 
@@ -227,10 +240,8 @@ export const getClinicById = asyncHandler(
 
     const result = await pool.query(
       `SELECT ${PUBLIC_CLINIC_COLUMNS}
-     FROM "Tenant"
-     WHERE id = $1
-       AND "subscriptionStatus" = 'ACTIVE'
-       AND ("subscriptionExpiresAt" IS NULL OR "subscriptionExpiresAt" > NOW())`,
+     FROM "Tenant" t
+     WHERE t.id = $1 AND ${ACTIVE_CLINIC_SQL}`,
       [id],
     );
     const clinic = result.rows[0];
