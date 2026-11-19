@@ -15,6 +15,7 @@ import {
   searchDoctors,
   listSpecializations,
 } from "../controllers/search.controller";
+import { streamDoctorAvailability } from "../controllers/stream.controller";
 import { listDoctorReviews } from "../controllers/review.controller";
 
 const router = Router();
@@ -24,6 +25,16 @@ const searchLimiter = rateLimit({
   limit: 100,
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Limits how often a connection can be opened, on top of the cap on how many
+// can be open at once.
+const streamLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many live connections. Please try again later." },
 });
 
 // Public search. Registered first, before any "/:id" route, so "search" and
@@ -82,6 +93,11 @@ router.delete(
 // Public — a GET on the same "/:id/availability" path as the admin PUT
 // above; Express distinguishes them by method, so this is safe.
 router.get("/:id/availability", getDoctorAvailability);
+
+// Live updates for the availability above: a long-lived stream of change
+// events. Public, like the availability itself.
+router.get("/:id/availability/stream", streamLimiter, streamDoctorAvailability);
+
 router.get("/:id/reviews", listDoctorReviews);
 
 export default router;

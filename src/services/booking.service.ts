@@ -3,6 +3,7 @@ import { env } from "../config/env";
 import { razorpay } from "../config/razorpay";
 import { AppError } from "../middlewares/error.middleware";
 import { createBookingConfirmedNotification } from "./notification.service";
+import { publishDoctorChange, publishToUser } from "./realtime.service";
 
 export type ReserveResult =
   | { ok: true; booking: any }
@@ -77,6 +78,7 @@ export const reserveBooking = async (
         return { ok: false, reason: "SLOT_RESERVED" };
       }
       await client.query("COMMIT");
+      publishDoctorChange(doctorId, { state: "HELD", date, startTime });
       return { ok: true, booking: updateRes.rows[0] };
     }
 
@@ -99,6 +101,7 @@ export const reserveBooking = async (
         ],
       );
       await client.query("COMMIT");
+      publishDoctorChange(doctorId, { state: "HELD", date, startTime });
       return { ok: true, booking: insertRes.rows[0] };
     } catch (err: any) {
       if (err.code === "23505") {
@@ -269,6 +272,15 @@ export const confirmBooking = async (
       }
 
       await client.query("COMMIT");
+
+      // Live updates go out only now that the booking is really saved.
+      publishDoctorChange(booking.doctorId, {
+        state: "BOOKED",
+        date: booking.date,
+        startTime: String(booking.startTime).slice(0, 5),
+      });
+      publishToUser(booking.patientId, { type: "BOOKING_CONFIRMED" });
+
       return "CONFIRMED";
     }
 

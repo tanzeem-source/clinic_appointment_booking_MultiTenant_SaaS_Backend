@@ -16,6 +16,10 @@ import {
   createDoctorUnavailableNotification,
   createAppointmentRestoredNotification,
 } from "../services/notification.service";
+import {
+  publishDoctorChange,
+  publishToUser,
+} from "../services/realtime.service";
 
 const DOCTOR_FIELD_TO_COLUMN: Record<string, string> = {
   name: "name",
@@ -98,6 +102,8 @@ export const updateDoctor = asyncHandler(
       [...values, id],
     );
 
+    publishDoctorChange(id, { state: "DOCTOR_CHANGED" });
+
     return res.status(200).json({ doctor: result.rows[0] });
   },
 );
@@ -135,6 +141,8 @@ export const setWeeklyAvailability = asyncHandler(
     } finally {
       client.release();
     }
+
+    publishDoctorChange(id, { state: "SCHEDULE_CHANGED" });
 
     const result = await pool.query(
       'SELECT * FROM "DoctorWeeklyAvailability" WHERE "doctorId" = $1 ORDER BY "dayOfWeek" ASC, "startTime" ASC',
@@ -183,7 +191,7 @@ export const addOverride = asyncHandler(
       }
 
       const bookingsRes = await client.query(
-        `SELECT b.id, b.status, b."visitStatus", b.date, b."startTime", b."endTime",
+        `SELECT b.id, b.status, b."visitStatus", b.date, b."startTime", b."endTime", b."patientId",
               u.name AS "patientName", u.phone AS "patientPhone"
        FROM "Booking" b
        JOIN "User" u ON u.id = b."patientId"
@@ -229,6 +237,11 @@ export const addOverride = asyncHandler(
       }
 
       await client.query("COMMIT");
+
+      // Live updates, only now that the override is saved.
+      publishDoctorChange(id, { state: "DAY_CLOSED", date: data.date });
+      for (const b of affected)
+        publishToUser(b.patientId, { type: "DOCTOR_UNAVAILABLE" });
 
       return res.status(201).json({
         override,
@@ -276,7 +289,7 @@ export const removeOverride = asyncHandler(
       const restoredRes = await client.query(
         `UPDATE "Booking" SET "needsReschedule" = FALSE, "needsRescheduleAt" = NULL
        WHERE "doctorId" = $1 AND date = $2 AND "needsReschedule" = TRUE AND status = 'CONFIRMED'
-       RETURNING id`,
+       RETURNING id, "patientId"`,
         [id, date],
       );
 
@@ -297,6 +310,11 @@ export const removeOverride = asyncHandler(
       }
 
       await client.query("COMMIT");
+
+      // Live updates, only now that the day is reopened.
+      publishDoctorChange(id, { state: "DAY_REOPENED", date });
+      for (const b of restoredRes.rows)
+        publishToUser(b.patientId, { type: "APPOINTMENT_RESTORED" });
 
       return res
         .status(200)

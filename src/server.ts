@@ -12,15 +12,18 @@ import reviewRoutes from "./routes/review.route";
 import notificationRoutes from "./routes/notification.route";
 import patientRoutes from "./routes/patient.route";
 import devRoutes from "./dev/dev.route";
+import liveDevRoutes from "./dev/live.route";
 import { handleWebhook } from "./controllers/payment.controller";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 
 const app = express();
 
 // Dev-only test pages. Mounted BEFORE helmet on purpose: helmet's default
-// Content-Security-Policy would block Razorpay's checkout script.
+// Content-Security-Policy would block Razorpay's checkout script and the
+// inline scripts on the test pages.
 if (env.NODE_ENV !== "production") {
   app.use("/dev", devRoutes);
+  app.use("/dev", liveDevRoutes);
 }
 
 app.use(helmet());
@@ -55,5 +58,5 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 app.listen(env.PORT, () => {
-  console.log(`⚡️[server]: Server is running at http://localhost:${env.PORT}`);
+  console.log(`[server]: Server is running at http://localhost:${env.PORT}`);
 });

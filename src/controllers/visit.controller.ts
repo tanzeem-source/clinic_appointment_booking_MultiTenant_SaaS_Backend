@@ -7,6 +7,7 @@ import {
   BookingIdParamSchema,
 } from "../schemas/visit.schemas";
 import { createReviewRequestNotification } from "../services/notification.service";
+import { publishToUser } from "../services/realtime.service";
 
 const shapeBooking = (b: any) => ({
   id: b.id,
@@ -108,6 +109,11 @@ export const markVisitOutcome = asyncHandler(
       }
 
       await client.query("COMMIT");
+
+      // Live update for the patient, only now that the outcome is saved.
+      if (outcome === "COMPLETED")
+        publishToUser(booking.patientId, { type: "REVIEW_REQUEST" });
+
       return res.status(200).json({ booking: shapeBooking(updateRes.rows[0]) });
     } catch (err) {
       await client.query("ROLLBACK");

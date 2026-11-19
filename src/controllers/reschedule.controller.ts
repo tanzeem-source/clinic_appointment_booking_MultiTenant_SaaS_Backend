@@ -14,6 +14,10 @@ import {
   createBookingRescheduledNotification,
   createBookingCancelledNotification,
 } from "../services/notification.service";
+import {
+  publishDoctorChange,
+  publishToUser,
+} from "../services/realtime.service";
 
 type Db = Pool | PoolClient;
 
@@ -257,6 +261,15 @@ export const rescheduleBooking = asyncHandler(
 
       await client.query("COMMIT");
 
+      // Live updates, only now that the move is saved.
+      publishDoctorChange(booking.doctorId, {
+        state: "FREE",
+        date: previousDate,
+        startTime: previousStartTime,
+      });
+      publishDoctorChange(doctor.id, { state: "BOOKED", date, startTime });
+      publishToUser(booking.patientId, { type: "BOOKING_RESCHEDULED" });
+
       return res.status(200).json({
         booking: {
           id: updated.id,
@@ -291,6 +304,12 @@ export const cancelBookingWithRefund = asyncHandler(
 
     const client = await pool.connect();
     let orderId: string | null = null;
+    let cancelled: {
+      doctorId: string;
+      date: string;
+      startTime: string;
+      patientId: string;
+    } | null = null;
 
     try {
       await client.query("BEGIN");
@@ -364,9 +383,25 @@ export const cancelBookingWithRefund = asyncHandler(
         }
 
         orderId = payment.razorpayOrderId;
+        cancelled = {
+          doctorId: booking.doctorId,
+          date: booking.date,
+          startTime: String(booking.startTime).slice(0, 5),
+          patientId: booking.patientId,
+        };
       }
 
       await client.query("COMMIT");
+
+      // Live updates, only now that the cancellation is saved.
+      if (cancelled) {
+        publishDoctorChange(cancelled.doctorId, {
+          state: "FREE",
+          date: cancelled.date,
+          startTime: cancelled.startTime,
+        });
+        publishToUser(cancelled.patientId, { type: "BOOKING_CANCELLED" });
+      }
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;
