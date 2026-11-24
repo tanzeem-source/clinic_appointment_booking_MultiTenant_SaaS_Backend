@@ -73,6 +73,10 @@ export const listStaff = asyncHandler(
 // The WHERE clause is the safety net: it only matches STAFF of THIS clinic, so
 // an admin can't touch another clinic's staff, other admins, or patients by
 // guessing an id. Anything else looks like "not found".
+//
+// Deactivating someone also bumps their tokenVersion, ending every session
+// they have. Without that, reactivating them later would bring an old cookie
+// back to life.
 export const updateStaff = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const tenantId = req.user?.tenantId;
@@ -84,7 +88,10 @@ export const updateStaff = asyncHandler(
 
     const result = await pool.query(
       `UPDATE "User"
-     SET name = COALESCE($1, name), phone = COALESCE($2, phone), "isActive" = COALESCE($3, "isActive")
+     SET name = COALESCE($1, name),
+         phone = COALESCE($2, phone),
+         "isActive" = COALESCE($3, "isActive"),
+         "tokenVersion" = CASE WHEN $3::boolean IS FALSE THEN "tokenVersion" + 1 ELSE "tokenVersion" END
      WHERE id = $4 AND "tenantId" = $5 AND role = 'CLINIC_STAFF'
      RETURNING ${STAFF_COLUMNS}`,
       [

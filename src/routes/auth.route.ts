@@ -1,5 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import { authenticateJWT } from "../middlewares/auth.middleware";
 import {
   registerPatient,
   registerClinic,
@@ -7,6 +8,7 @@ import {
   resendOtp,
   login,
   logout,
+  logoutAll,
   forgotPassword,
   resetPassword,
 } from "../controllers/auth.controller";
@@ -33,7 +35,8 @@ router.post("/register-clinic", authLimiter, registerClinic);
 router.post("/verify-otp", otpLimiter, verifyOTP);
 router.post("/resend-otp", otpLimiter, resendOtp);
 router.post("/login", authLimiter, login);
-router.post("/logout", logout);
+router.post("/logout", logout); // this device only; no login needed to clear a cookie
+router.post("/logout-all", authLimiter, authenticateJWT, logoutAll); // every device
 router.post("/forgot-password", otpLimiter, forgotPassword);
 router.post("/reset-password", otpLimiter, resetPassword);
 

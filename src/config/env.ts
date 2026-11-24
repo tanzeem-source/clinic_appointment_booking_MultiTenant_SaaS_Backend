@@ -35,6 +35,11 @@ const envSchema = z.object({
   // number of wrong reset codes.
   RESET_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(30),
 
+  // Wrong passwords allowed for one email within LOGIN_LOCKOUT_MINUTES, after
+  // which login for that email is blocked for LOGIN_LOCKOUT_MINUTES.
+  LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+
   RAZORPAY_KEY_ID: z.string().min(1, "RAZORPAY_KEY_ID is required"),
   RAZORPAY_KEY_SECRET: z.string().min(1, "RAZORPAY_KEY_SECRET is required"),
   RAZORPAY_WEBHOOK_SECRET: z

@@ -11,24 +11,48 @@ export interface AuthenticatedRequest extends Request {
   user?: JwtPayload;
 }
 
-export const authenticateJWT = (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction,
-) => {
-  const token = req.cookies?.[AUTH_COOKIE_NAME];
+// Verifies the cookie AND checks the database on every request, so a session
+// can be ended at any time: a changed tokenVersion kills every cookie issued
+// before it, and a deactivated account is turned away straight away.
+export const authenticateJWT = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const token = req.cookies?.[AUTH_COOKIE_NAME];
 
-  if (!token) {
-    return res.status(401).json({ error: "Not authenticated." });
-  }
+    if (!token) {
+      return res.status(401).json({ error: "Not authenticated." });
+    }
 
-  try {
-    req.user = verifyToken(token);
+    let payload: JwtPayload;
+    try {
+      payload = verifyToken(token);
+    } catch (err) {
+      return res.status(403).json({ error: "Invalid or expired session." });
+    }
+
+    const result = await pool.query(
+      'SELECT "tokenVersion", "isActive" FROM "User" WHERE id = $1',
+      [payload.userId],
+    );
+    const user = result.rows[0];
+
+    // A missing user (deleted) is treated the same as a revoked session.
+    if (!user || user.tokenVersion !== payload.tokenVersion) {
+      return res.status(401).json({
+        error: "Your session has ended. Please log in again.",
+        code: "SESSION_REVOKED",
+      });
+    }
+
+    if (user.isActive !== true) {
+      return res
+        .status(403)
+        .json({ error: "This account has been deactivated." });
+    }
+
+    req.user = payload;
     next();
-  } catch (err) {
-    return res.status(403).json({ error: "Invalid or expired session." });
-  }
-};
+  },
+);
 
 export const requireRole = (roles: Array<JwtPayload["role"]>) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -41,26 +65,16 @@ export const requireRole = (roles: Array<JwtPayload["role"]>) => {
   };
 };
 
-// Checks the database on every request, so deactivating someone takes effect
-// immediately instead of waiting for their 7-day cookie to expire. Use it
-// after authenticateJWT on routes staff can reach.
-export const requireActiveUser = asyncHandler(
-  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ error: "Not authenticated." });
-    }
-
-    const result = await pool.query(
-      'SELECT "isActive" FROM "User" WHERE id = $1',
-      [userId],
-    );
-    if (!result.rows[0] || result.rows[0].isActive !== true) {
-      return res
-        .status(403)
-        .json({ error: "This account has been deactivated." });
-    }
-
-    next();
-  },
-);
+// authenticateJWT now rejects deactivated accounts on every route, so this no
+// longer needs its own database lookup. It's kept so routes that already list
+// it don't have to change.
+export const requireActiveUser = (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Not authenticated." });
+  }
+  next();
+};

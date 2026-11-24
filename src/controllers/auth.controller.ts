@@ -11,6 +11,7 @@ import {
   ForgotPasswordSchema,
   ResetPasswordSchema,
 } from "../schemas/auth.schemas";
+import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { asyncHandler, AppError } from "../middlewares/error.middleware";
 import { generateOtp, hashOtp, otpExpiryDate } from "../services/otp.service";
 import { sendOtpEmail } from "../services/email.service";
@@ -177,6 +178,7 @@ export const verifyOTP = asyncHandler(async (req: Request, res: Response) => {
     userId: user.id,
     role: user.role,
     tenantId: user.tenantId || null,
+    tokenVersion: user.tokenVersion,
   });
   res.cookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
 
@@ -226,20 +228,82 @@ export const resendOtp = asyncHandler(async (req: Request, res: Response) => {
     .json({ message: "A new verification code has been sent." });
 });
 
+// Checked when an email isn't registered, so the response takes about as long
+// as a real password check and doesn't give the missing account away.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync("not-a-real-password", 10);
+
+// Counts a wrong password against this EMAIL, whether or not an account exists
+// for it, so a real and a made-up email behave identically. Failures older
+// than the lockout window don't count.
+const recordFailedLogin = async (email: string): Promise<void> => {
+  // Housekeeping: forget old, unlocked rows (mostly made-up emails).
+  await pool.query(
+    `DELETE FROM "LoginAttempt"
+     WHERE "lastFailedAt" < NOW() - INTERVAL '1 day' AND ("lockedUntil" IS NULL OR "lockedUntil" < NOW())`,
+  );
+
+  const result = await pool.query(
+    `INSERT INTO "LoginAttempt" (email, failures, "lastFailedAt")
+     VALUES ($1, 1, NOW())
+     ON CONFLICT (email) DO UPDATE SET
+       failures = CASE
+         WHEN "LoginAttempt"."lastFailedAt" > NOW() - make_interval(mins => $2)
+         THEN "LoginAttempt".failures + 1
+         ELSE 1
+       END,
+       "lastFailedAt" = NOW()
+     RETURNING failures`,
+    [email, env.LOGIN_LOCKOUT_MINUTES],
+  );
+
+  if (result.rows[0].failures >= env.LOGIN_MAX_ATTEMPTS) {
+    await pool.query(
+      `UPDATE "LoginAttempt" SET "lockedUntil" = NOW() + make_interval(mins => $2) WHERE email = $1`,
+      [email, env.LOGIN_LOCKOUT_MINUTES],
+    );
+  }
+};
+
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const { email, password } = LoginSchema.parse(req.body);
+
+  // A locked email is refused before any password is checked, so even the
+  // right password waits out the lock. This applies to registered and
+  // unregistered emails alike.
+  const lockRes = await pool.query(
+    'SELECT "lockedUntil" FROM "LoginAttempt" WHERE email = $1',
+    [email],
+  );
+  const lockedUntil = lockRes.rows[0]?.lockedUntil;
+  if (lockedUntil && new Date(lockedUntil).getTime() > Date.now()) {
+    const minutes = Math.ceil(
+      (new Date(lockedUntil).getTime() - Date.now()) / 60000,
+    );
+    throw new AppError(
+      `Too many failed login attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or reset your password.`,
+      429,
+    );
+  }
 
   const userRes = await pool.query('SELECT * FROM "User" WHERE email = $1', [
     email,
   ]);
   const user = userRes.rows[0];
 
+  const passwordOk = await bcrypt.compare(
+    password,
+    user ? user.passwordHash : DUMMY_PASSWORD_HASH,
+  );
+
   // Same generic message for "no such user" and "wrong password" —
   // distinguishing them lets an attacker enumerate which emails are registered.
-  if (!user) throw new AppError("Invalid email or password.", 401);
+  if (!user || !passwordOk) {
+    await recordFailedLogin(email);
+    throw new AppError("Invalid email or password.", 401);
+  }
 
-  const validPassword = await bcrypt.compare(password, user.passwordHash);
-  if (!validPassword) throw new AppError("Invalid email or password.", 401);
+  // The password was right, so the failure count starts again.
+  await pool.query('DELETE FROM "LoginAttempt" WHERE email = $1', [email]);
 
   if (!user.isVerified) {
     throw new AppError("Please verify your email before logging in.", 403);
@@ -258,6 +322,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     userId: user.id,
     role: user.role,
     tenantId: user.tenantId || null,
+    tokenVersion: user.tokenVersion,
   });
   res.cookie(AUTH_COOKIE_NAME, token, getAuthCookieOptions());
 
@@ -268,6 +333,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
+// Ends the session on THIS device only.
 export const logout = asyncHandler(async (req: Request, res: Response) => {
   res.clearCookie(AUTH_COOKIE_NAME, {
     ...getAuthCookieOptions(),
@@ -275,6 +341,26 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
   });
   return res.status(200).json({ message: "Logged out." });
 });
+
+// Ends the session on EVERY device: bumping the version makes every cookie
+// issued so far invalid, including this one.
+export const logoutAll = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user?.userId;
+    if (!userId) throw new AppError("Not authenticated.", 401);
+
+    await pool.query(
+      'UPDATE "User" SET "tokenVersion" = "tokenVersion" + 1 WHERE id = $1',
+      [userId],
+    );
+
+    res.clearCookie(AUTH_COOKIE_NAME, {
+      ...getAuthCookieOptions(),
+      maxAge: undefined,
+    });
+    return res.status(200).json({ message: "Logged out of all devices." });
+  },
+);
 
 // Always answers the same way, whether or not the email belongs to a
 // verified account, is inside the resend cooldown, or is locked out after too
@@ -310,11 +396,6 @@ export const forgotPassword = asyncHandler(
          WHERE id = $4`,
           [hashOtp(otp), otpExpiryDate(), new Date(), user.id],
         );
-
-        // TEMP (dev only): Resend can only email your own address until a domain
-        // is verified. Delete this line before deploying.
-        if (env.NODE_ENV === "development")
-          console.log("🔑 DEV reset code for", email, ":", otp);
 
         void sendOtpEmail(email, otp, "Reset your password");
       }
@@ -380,16 +461,21 @@ export const resetPassword = asyncHandler(
 
     // Single use: only succeeds if the code is still the one that was just
     // checked, then clears it (and any lock). A second request with the same
-    // code finds nothing.
+    // code finds nothing. Bumping tokenVersion also ends every session that was
+    // open under the old password, on every device.
     const updateRes = await pool.query(
       `UPDATE "User"
      SET "passwordHash" = $1, "resetOtpCode" = NULL, "resetOtpExpiresAt" = NULL,
-         "resetOtpAttempts" = 0, "resetOtpLastSentAt" = NULL, "resetLockedUntil" = NULL
+         "resetOtpAttempts" = 0, "resetOtpLastSentAt" = NULL, "resetLockedUntil" = NULL,
+         "tokenVersion" = "tokenVersion" + 1
      WHERE id = $2 AND "resetOtpCode" = $3
      RETURNING id`,
       [passwordHash, claimed.id, submittedHash],
     );
     if (updateRes.rows.length === 0) throw invalidResetCode();
+
+    // A reset is the way out of a login lockout.
+    await pool.query('DELETE FROM "LoginAttempt" WHERE email = $1', [email]);
 
     return res
       .status(200)
